@@ -1,0 +1,2 @@
+# User Task for Agents
+Plan a comprehensive, multi-channel marketing campaign for austerichild’s next album release. Consider the band’s existing fanbase (mostly indie rock lovers and experimental pop enthusiasts) and aim to broaden their reach to a wider audience who enjoy melodic electronica and art-pop. Develop key messaging, target audience segments, and a budget breakdown for the campaign. Include ideas for social media content, potential live show/touring options, and press/PR strategies.
