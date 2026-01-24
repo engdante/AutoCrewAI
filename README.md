@@ -1,5 +1,7 @@
 # CrewAI GUI & Automation System
 
+![Application Screenshot](app.jpeg)
+
 ## Project Description
 This project represents an advanced system for managing and automating CrewAI agent teams. It provides a graphical user interface (GUI) that allows for easy definition of agents and tasks, as well as automatic generation of configuration files (`Crew.md` and `Task.md`) using meta-agents.
 
