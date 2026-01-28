@@ -1,0 +1,184 @@
+Successfully imported all tools_registry functions
+Tools Registry Test Suite
+==================================================
+
+=== Testing Imports ===
+All tool categories imported successfully
+
+=== Testing Functions ===
+get_tools_by_category works
+get_tool_by_name works
+get_tools_for_agent_role works
+get_tools_by_context_keywords works
+get_available_tools works
+get_untested_tools works
+update_tool_status works
+
+Function Tests: 7/7 passed
+
+=== Testing Tool Structure ===
+
+Testing SEARCH_TOOLS:
+  serper_dev
+  website_search
+  firecrawl_search
+  scrape_website
+  scrape_element
+
+Testing FILE_TOOLS:
+  file_reader
+  directory_reader
+  pdf_search
+  docx_search
+  csv_search
+  txt_search
+  json_search
+  mdx_search
+  xml_search
+  directory_search
+
+Testing DATA_TOOLS:
+  youtube_video_search
+  youtube_channel_search
+  code_interpreter
+  github_search
+  rag_tool
+  code_docs_search
+
+Structure Tests: 21/21 passed
+
+=== Testing Tool Availability ===
+crewai-tools package is available
+  WebsiteSearchTool available in crewai-tools
+  SerperDevTool available in crewai-tools
+  FileReadTool available in crewai-tools
+
+Availability Tests: 3/3 passed
+
+=== Testing Context Matching ===
+  Text: 'search for current information'
+  Expected: ['serper_dev', 'website_search']
+  Matched: ['serper_dev']
+  Context matching works
+  Text: 'read PDF document'
+  Expected: ['pdf_search']
+  Matched: ['file_reader', 'pdf_search']
+  Context matching works
+  Text: 'analyze CSV data'
+  Expected: ['csv_search']
+  Matched: []
+  Partial match or no match (may be expected for unconfirmed tools)
+  Text: 'process word document'
+  Expected: ['docx_search']
+  Matched: ['file_reader', 'docx_search']
+  Context matching works
+  Text: 'search youtube videos'
+  Expected: ['youtube_video_search']
+  Matched: ['serper_dev', 'youtube_video_search']
+  Context matching works
+  Text: 'read file content'
+  Expected: ['file_reader']
+  Matched: ['file_reader']
+  Context matching works
+  Text: 'scrape website content'
+  Expected: ['scrape_website']
+  Matched: ['website_search', 'scrape_website']
+  Context matching works
+  Text: 'search github repository'
+  Expected: ['github_search']
+  Matched: ['serper_dev', 'github_search']
+  Context matching works
+
+Context Matching Tests: 8/8 passed
+
+=== Testing Agent Role Matching ===
+  Researcher: ['serper_dev', 'website_search', 'firecrawl_search', 'scrape_website', 'scrape_element', 'file_reader', 'directory_reader', 'pdf_search', 'docx_search', 'csv_search', 'txt_search', 'json_search', 'mdx_search', 'xml_search', 'directory_search', 'youtube_video_search', 'youtube_channel_search', 'code_interpreter', 'github_search', 'rag_tool', 'code_docs_search']
+  Role matching works for researcher
+  Analyst: ['serper_dev', 'website_search', 'firecrawl_search', 'scrape_website', 'scrape_element', 'file_reader', 'directory_reader', 'pdf_search', 'docx_search', 'csv_search', 'txt_search', 'json_search', 'xml_search', 'directory_search', 'youtube_video_search', 'youtube_channel_search', 'code_interpreter', 'github_search', 'rag_tool', 'code_docs_search']
+  Role matching works for analyst
+  Writer: ['file_reader', 'docx_search', 'mdx_search']
+  Role matching works for writer
+  Assistant: ['serper_dev', 'file_reader', 'directory_reader', 'pdf_search', 'csv_search', 'txt_search', 'rag_tool']
+  Role matching works for assistant
+  Developer: ['json_search', 'mdx_search', 'xml_search', 'directory_search', 'code_interpreter', 'github_search', 'code_docs_search']
+  Role matching works for developer
+
+Agent Role Tests: 5/5 passed
+
+=== Testing Registry Completeness ===
+  serper_dev found in registry
+  website_search found in registry
+  firecrawl_search found in registry
+  file_reader found in registry
+  pdf_search found in registry
+  docx_search found in registry
+  csv_search found in registry
+  youtube_video_search found in registry
+  github_search found in registry
+  rag_tool found in registry
+
+Completeness Tests: 10/10 passed
+
+=== Running Demonstration ===
+
+1. All tools in registry:
+
+=== TOOLS REGISTRY ===
+
+--- Search Tools ---
+  - serper_dev: confirmed
+  - website_search: confirmed
+  - firecrawl_search: untested
+  - scrape_website: untested
+  - scrape_element: untested
+
+--- File Tools ---
+  - file_reader: confirmed
+  - directory_reader: untested
+  - pdf_search: untested
+  - docx_search: untested
+  - csv_search: untested
+  - txt_search: untested
+  - json_search: untested
+  - mdx_search: untested
+  - xml_search: untested
+  - directory_search: untested
+
+--- Data Tools ---
+  - youtube_video_search: untested
+  - youtube_channel_search: untested
+  - code_interpreter: untested
+  - github_search: untested
+  - rag_tool: untested
+  - code_docs_search: untested
+
+2. Tools suitable for 'researcher':
+   ['serper_dev', 'website_search', 'firecrawl_search', 'scrape_website', 'scrape_element', 'file_reader', 'directory_reader', 'pdf_search', 'docx_search', 'csv_search', 'txt_search', 'json_search', 'mdx_search', 'xml_search', 'directory_search', 'youtube_video_search', 'youtube_channel_search', 'code_interpreter', 'github_search', 'rag_tool', 'code_docs_search']
+
+3. Tools triggered by 'search web for current information':
+   ['serper_dev']
+
+4. Detailed information about serper_dev:
+
+=== SerperDevTool ===
+Class: SerperDevTool
+Description: A specialized tool for development purposes, with specific functionalities for web search using Google Search API
+Availability: unconfirmed
+Requirements: crewai-tools, SERPER_API_KEY
+Cost: free tier available
+Suitable for: researcher, analyst, assistant
+Context triggers: google search, web search, search, find, research, information, current, latest
+Testing notes: Confirmed available in crewai-tools
+Status: confirmed
+
+5. Available tools (confirmed working):
+   ['website_search', 'file_reader']
+
+6. Untested tools:
+   ['firecrawl_search', 'scrape_website', 'scrape_element', 'directory_reader', 'pdf_search', 'docx_search', 'csv_search', 'txt_search', 'json_search', 'mdx_search', 'xml_search', 'directory_search', 'youtube_video_search', 'youtube_channel_search', 'code_interpreter', 'github_search', 'rag_tool', 'code_docs_search']
+
+==================================================
+TEST SUMMARY
+==================================================
+Tests Passed: 7/7
+All tests passed!

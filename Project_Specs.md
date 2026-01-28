@@ -23,6 +23,13 @@ This project is an advanced automation system for managing and executing CrewAI 
 
 4.  **Multi-LLM Support**: Each agent can be assigned a specific Ollama model. Configuration is managed via environment variables and the GUI.
 
+5.  **Tools Registry System**: A comprehensive tools management system ([tools_registry.py](file:///d:/AI/crewAI/script/tools_registry.py)) provides:
+    -   **Tool Categorization**: Organized into Search Tools, File Tools, Data Tools, and Custom Tools.
+    -   **Intelligent Tool Selection**: Automatic tool assignment based on agent roles and task context.
+    -   **Tool Testing Framework**: Structured approach to validate tool functionality before integration.
+    -   **Metadata Management**: Each tool includes requirements, cost, suitability, and trigger keywords.
+    -   **Extensible Architecture**: Support for both crewai-tools and custom-built tools.
+
 ## Project Structure
 
 ### Root Directory

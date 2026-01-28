@@ -373,7 +373,7 @@ class CrewAIGUI:
     def open_generate_dialog(self):
         gen_win = tk.Toplevel(self.root)
         gen_win.title("Generate Crew")
-        gen_win.geometry("800x850")
+        gen_win.geometry("800x950")
         
         # Position centered on main window
         self.root.update_idletasks()
@@ -382,53 +382,86 @@ class CrewAIGUI:
         rw = self.root.winfo_width()
         rh = self.root.winfo_height()
         gx = rx + (rw // 2) - 400
-        gy = ry + (rh // 2) - 425
+        gy = ry + (rh // 2) - 475
         gen_win.geometry(f"+{gx}+{gy}")
         
         gen_win.transient(self.root)
         gen_win.grab_set()
 
-        # First field: Describe task for Crew
-        ttk.Label(gen_win, text="Describe task for the Crew:", style="Header.TLabel").pack(anchor="w", padx=20, pady=(20, 10))
-        
-        task_frame = ttk.Frame(gen_win)
-        task_frame.pack(fill="x", padx=20, pady=5)
-        task_text = tk.Text(task_frame, height=5, font=("Segoe UI", 10), wrap="word")
-        scrollbar = ttk.Scrollbar(task_frame, orient="vertical", command=task_text.yview)
-        task_text.configure(yscrollcommand=scrollbar.set)
-        task_text.pack(side="left", fill="x", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        # --- Configuration Frame ---
+        config_frame = ttk.LabelFrame(gen_win, text="Generation Settings", style="Section.TLabelframe")
+        config_frame.pack(fill="x", padx=20, pady=10)
+        config_frame.columnconfigure(1, weight=1)
+        config_frame.columnconfigure(3, weight=1)
+
+        # Task Description (Main Task)
+        ttk.Label(config_frame, text="Describe task for the Crew:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        task_text_frame = ttk.Frame(config_frame)
+        task_text_frame.grid(row=1, column=0, columnspan=4, sticky="ew", padx=5, pady=2)
+        task_text = tk.Text(task_text_frame, height=3, font=("Segoe UI", 10), wrap="word")
+        task_scrollbar = ttk.Scrollbar(task_text_frame, orient="vertical", command=task_text.yview)
+        task_text.configure(yscrollcommand=task_scrollbar.set)
+        task_text.pack(side="left", fill="both", expand=True)
+        task_scrollbar.pack(side="right", fill="y")
         self.add_context_menu(task_text)
 
-        # Second field: Feedback
-        ttk.Label(gen_win, text="Feedback:", style="Header.TLabel").pack(anchor="w", padx=20, pady=(15, 10))
-        
+        # Architecture Selection
+        ttk.Label(config_frame, text="Architecture:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+        arch_var = tk.StringVar(value="sequential")
+        arch_combo = ttk.Combobox(config_frame, textvariable=arch_var, values=["sequential", "hierarchical"], state="readonly", width=15)
+        arch_combo.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+        arch_combo.current(0) # Force select "sequential"
+
+        # Architecture Selection
+        ttk.Label(config_frame, text="Architecture:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+        arch_var = tk.StringVar(value="sequential")
+        arch_combo = ttk.Combobox(config_frame, textvariable=arch_var, values=["sequential", "hierarchical"], state="readonly", width=15)
+        arch_combo.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+        arch_combo.current(0) # Force select "sequential"
+
+        # Supervisor Checkbox - Using IntVar for more reliable state
+        supervisor_enabled = tk.IntVar(value=0)
+        supervisor_check = ttk.Checkbutton(config_frame, text="Enable Supervisor", variable=supervisor_enabled)
+        supervisor_check.grid(row=2, column=2, sticky="w", padx=(20, 5), pady=5)
+
+        # Tool Agent Checkbox - Using IntVar for more reliable state
+        tool_agent_enabled = tk.IntVar(value=0)
+        tool_agent_check = ttk.Checkbutton(config_frame, text="Enable Tool Agent", variable=tool_agent_enabled)
+        tool_agent_check.grid(row=2, column=3, sticky="w", padx=(5, 5), pady=5)
+
+        # Model Selection for general agents
+        ttk.Label(config_frame, text="Default Model:").grid(row=3, column=0, sticky="w", padx=5, pady=5)
+        def_model = os.getenv("OLLAMA_MODEL", "")
+        model_name_var = tk.StringVar(value=def_model)
+        model_combo = ttk.Combobox(config_frame, textvariable=model_name_var, values=self.ollama_models, width=20)
+        model_combo.grid(row=3, column=1, sticky="ew", padx=5, pady=5)
+
+        # Supervisor Model Selection
+        ttk.Label(config_frame, text="Supervisor Model:").grid(row=3, column=2, sticky="w", padx=(20, 5), pady=5)
+        sup_model_var = tk.StringVar(value=def_model)
+        sup_model_combo = ttk.Combobox(config_frame, textvariable=sup_model_var, values=self.ollama_models, width=20)
+        sup_model_combo.grid(row=3, column=3, sticky="ew", padx=5, pady=5)
+
+        # Refresh Button for Models - Aligned with Default Model field
+        def update_both_combos():
+            self.fetch_ollama_models(model_combo)
+            sup_model_combo['values'] = self.ollama_models # Sync values
+
+        refresh_btn = ttk.Button(config_frame, text="↻ Models", width=10,
+                               command=update_both_combos)
+        refresh_btn.grid(row=4, column=1, sticky="w", padx=5, pady=5)
+
+        # Feedback/Refinement Field
+        ttk.Label(gen_win, text="Feedback / Refinement (for Refine button):", style="Header.TLabel").pack(anchor="w", padx=20, pady=(10, 5))
         feedback_frame = ttk.Frame(gen_win)
         feedback_frame.pack(fill="x", padx=20, pady=5)
-        feedback_text = tk.Text(feedback_frame, height=5, font=("Segoe UI", 10), wrap="word")
+        feedback_text = tk.Text(feedback_frame, height=3, font=("Segoe UI", 10), wrap="word")
         feedback_scrollbar = ttk.Scrollbar(feedback_frame, orient="vertical", command=feedback_text.yview)
         feedback_text.configure(yscrollcommand=feedback_scrollbar.set)
         feedback_text.pack(side="left", fill="x", expand=True)
         feedback_scrollbar.pack(side="right", fill="y")
         self.add_context_menu(feedback_text)
 
-        # Model Selection
-        model_select_frame = ttk.Frame(gen_win)
-        model_select_frame.pack(fill="x", padx=20, pady=10)
-        ttk.Label(model_select_frame, text="Generation Model:", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 10))
-        
-        # Current default from .env
-        def_model = os.getenv("OLLAMA_MODEL", "")
-        model_name_var = tk.StringVar(value=def_model)
-        
-        # Use existing ollama_models list
-        model_combo = ttk.Combobox(model_select_frame, textvariable=model_name_var, values=self.ollama_models, width=40)
-        model_combo.pack(side="left", fill="x", expand=True)
-        
-        refresh_btn = ttk.Button(model_select_frame, text="↻", width=3, 
-                               command=lambda e=model_combo: self.fetch_ollama_models(e))
-        refresh_btn.pack(side="left", padx=(5, 0))
-        
         # Log Output
         ttk.Label(gen_win, text="Generation Log:", style="Header.TLabel").pack(anchor="w", padx=20, pady=(10, 5))
         log_frame = ttk.Frame(gen_win)
@@ -445,14 +478,18 @@ class CrewAIGUI:
         progress = ttk.Progressbar(progress_frame, mode="indeterminate")
         status_lbl = ttk.Label(progress_frame, text="Ready", font=("Segoe UI", 9, "italic"))
         status_lbl.pack(anchor="w")
-        
+
         btn_frame = ttk.Frame(gen_win)
         btn_frame.pack(fill="x", padx=20, pady=20)
 
         def run_generation():
             description = task_text.get("1.0", tk.END).strip()
             sel_model = model_name_var.get().strip()
-            
+            selected_arch = arch_var.get()
+            sup_enabled = supervisor_enabled.get()
+            sup_model = sup_model_var.get().strip()
+            tool_agent_enabled_flag = tool_agent_enabled.get()
+
             if not description:
                 messagebox.showwarning("Warning", "Please enter a task description.")
                 return
@@ -460,8 +497,6 @@ class CrewAIGUI:
             # Disable UI
             gen_btn.configure(state="disabled")
             refine_btn.configure(state="disabled")
-            task_text.configure(state="disabled")
-            feedback_text.configure(state="disabled")
             progress.pack(fill="x", pady=5)
             progress.start(10)
             status_lbl.config(text="Generating Crew... This may take a while.")
@@ -474,28 +509,31 @@ class CrewAIGUI:
             def thread_target():
                 try:
                     python_exe = self.get_python_exe()
-                    # Generate WITHOUT context (from scratch)
                     cmd = [python_exe, "-u", "script/create_crew.py", description]
-                    if sel_model:
-                        cmd.append(sel_model)
-                    
+                    if sel_model: cmd.extend(["--model", sel_model])
+                    cmd.extend(["--architecture", selected_arch])
+                    if sup_enabled:
+                        cmd.append("--supervisor")
+                        if sup_model: cmd.extend(["--supervisor-model", sup_model])
+                    if tool_agent_enabled_flag: cmd.append("--tool-agent")
+
                     process = subprocess.Popen(
-                        cmd, 
-                        stdout=subprocess.PIPE, 
-                        stderr=subprocess.STDOUT, 
-                        text=True, 
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
                         encoding='utf-8',
                         bufsize=1,
                         creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
                     )
-                    
+
                     while True:
                         line = process.stdout.readline()
                         if not line and process.poll() is not None:
                             break
                         if line:
                             gen_win.after(0, lambda l=line: update_log(l))
-                    
+
                     rc = process.poll()
                     gen_win.after(0, lambda: on_complete(rc))
                 except Exception as e:
@@ -506,152 +544,122 @@ class CrewAIGUI:
                 progress.pack_forget()
                 gen_btn.configure(state="normal")
                 refine_btn.configure(state="normal")
-                task_text.configure(state="normal")
-                feedback_text.configure(state="normal")
-                
                 if rc == 0:
                     status_lbl.config(text="Generation Complete!", foreground="green")
                     messagebox.showinfo("Success", "Crew generated successfully!")
-                    # Keep window open, just refresh main UI
                     self.refresh_data()
                 else:
                     status_lbl.config(text=f"Error Occurred (Code {rc})", foreground="red")
-                    messagebox.showerror("Error", "Generation failed. Check the log above.")
 
-            def on_error(err_msg):
+            def on_error(msg):
                 progress.stop()
                 progress.pack_forget()
                 gen_btn.configure(state="normal")
                 refine_btn.configure(state="normal")
-                task_text.configure(state="normal")
-                feedback_text.configure(state="normal")
-                log_text.insert(tk.END, f"\nCRITICAL ERROR: {err_msg}\n")
-                status_lbl.config(text="Execution Error", foreground="red")
-                messagebox.showerror("Error", f"Failed to run script: {err_msg}")
+                log_text.insert(tk.END, f"\nCRITICAL ERROR: {msg}\n")
 
             threading.Thread(target=thread_target, daemon=True).start()
 
         def run_refinement():
             feedback = feedback_text.get("1.0", tk.END).strip()
             sel_model = model_name_var.get().strip()
-            
+            selected_arch = arch_var.get()
+            sup_enabled = supervisor_enabled.get()
+            sup_model = sup_model_var.get().strip()
+            tool_agent_enabled_flag = tool_agent_enabled.get()
+
             if not feedback:
                 messagebox.showwarning("Warning", "Please enter feedback/refinement instructions.")
                 return
 
-            # Check if files exist
             crew_file = "Crew.md"
             task_file = "Task.md"
-            
             if not os.path.exists(crew_file) or not os.path.exists(task_file):
-                messagebox.showwarning(
-                    "Warning", 
-                    "Crew.md or Task.md not found. Please generate crew first using Generate button."
-                )
+                messagebox.showwarning("Warning", "Crew.md or Task.md not found.")
                 return
-            
-            # Read existing files for context
+
             try:
-                with open(crew_file, 'r', encoding='utf-8') as f:
-                    crew_context = f.read()
-                with open(task_file, 'r', encoding='utf-8') as f:
-                    task_context = f.read()
+                with open(crew_file, 'r', encoding='utf-8') as f: crew_context = f.read()
+                with open(task_file, 'r', encoding='utf-8') as f: task_context = f.read()
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to read existing files: {e}")
                 return
 
-            # Disable UI
             gen_btn.configure(state="disabled")
             refine_btn.configure(state="disabled")
-            task_text.configure(state="disabled")
-            feedback_text.configure(state="disabled")
             progress.pack(fill="x", pady=5)
             progress.start(10)
             status_lbl.config(text="Refining Crew... This may take a while.")
             log_text.delete("1.0", tk.END)
 
-            def update_log(line):
-                log_text.insert(tk.END, line)
-                log_text.see(tk.END)
-
             def thread_target():
                 try:
                     python_exe = self.get_python_exe()
-                    # Refine WITH context from existing files
-                    wrapper_cmd = [
-                        python_exe, "-c",
-                        f'''
+                    def esc(s): return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+
+                    script_code = f'''
 import sys
 sys.path.insert(0, "script")
 from create_crew import create_crew
-
 create_crew(
-    """{feedback.replace('"', '\\"')}""",
-    """{sel_model}""" if "{sel_model}" else None,
-    """{crew_context.replace('"', '\\"').replace(chr(10), '\\n').replace(chr(13), '')}""",
-    """{task_context.replace('"', '\\"').replace(chr(10), '\\n').replace(chr(13), '')}"""
+    task_description="{esc(feedback)}",
+    model_name="{esc(sel_model)}" if "{sel_model}" else None,
+    crew_context="{esc(crew_context)}",
+    task_context="{esc(task_context)}",
+    architecture="{selected_arch}",
+    enable_supervisor={sup_enabled},
+    enable_tool_agent={tool_agent_enabled_flag},
+    supervisor_model="{esc(sup_model)}" if "{sup_model}" else None
 )
 '''
-                    ]
-                    
+
                     process = subprocess.Popen(
-                        wrapper_cmd, 
-                        stdout=subprocess.PIPE, 
-                        stderr=subprocess.STDOUT, 
-                        text=True, 
+                        [python_exe, "-c", script_code],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
                         encoding='utf-8',
                         bufsize=1,
                         creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
                         cwd=os.getcwd()
                     )
-                    
+
                     while True:
                         line = process.stdout.readline()
                         if not line and process.poll() is not None:
                             break
                         if line:
                             gen_win.after(0, lambda l=line: update_log(l))
-                    
+
                     rc = process.poll()
                     gen_win.after(0, lambda: on_complete(rc))
                 except Exception as e:
                     gen_win.after(0, lambda: on_error(str(e)))
+
+            def update_log(line):
+                log_text.insert(tk.END, line)
+                log_text.see(tk.END)
 
             def on_complete(rc):
                 progress.stop()
                 progress.pack_forget()
                 gen_btn.configure(state="normal")
                 refine_btn.configure(state="normal")
-                task_text.configure(state="normal")
-                feedback_text.configure(state="normal")
-                
                 if rc == 0:
                     status_lbl.config(text="Refinement Complete!", foreground="green")
                     messagebox.showinfo("Success", "Crew refined successfully!")
-                    # Keep window open, just refresh main UI
                     self.refresh_data()
                 else:
                     status_lbl.config(text=f"Error Occurred (Code {rc})", foreground="red")
-                    messagebox.showerror("Error", "Refinement failed. Check the log above.")
 
-            def on_error(err_msg):
+            def on_error(msg):
                 progress.stop()
                 progress.pack_forget()
                 gen_btn.configure(state="normal")
                 refine_btn.configure(state="normal")
-                task_text.configure(state="normal")
-                feedback_text.configure(state="normal")
-                log_text.insert(tk.END, f"\nCRITICAL ERROR: {err_msg}\n")
-                status_lbl.config(text="Execution Error", foreground="red")
-                messagebox.showerror("Error", f"Failed to run refinement: {err_msg}")
+                log_text.insert(tk.END, f"\nCRITICAL ERROR: {msg}\n")
 
             threading.Thread(target=thread_target, daemon=True).start()
-
-        gen_btn = ttk.Button(btn_frame, text="Generate", command=run_generation)
-        gen_btn.pack(side="right", padx=5)
-        refine_btn = ttk.Button(btn_frame, text="Refine", command=run_refinement)
-        refine_btn.pack(side="right", padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=gen_win.destroy).pack(side="right", padx=5)
 
     def create_widgets(self):
         # Main Layout
