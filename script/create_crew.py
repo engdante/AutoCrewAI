@@ -48,11 +48,12 @@ def clean_markdown(content):
              content = content.replace("```", "").strip() # Aggressive cleanup at end
     return content.strip()
 
-def create_crew(task_description, model_name=None):
+def create_crew(task_description, model_name=None, crew_context=None, task_context=None):
     if model_name is None:
         model_name = OLLAMA_MODEL
-        
-    print(f"--- Planning and Creating Crew for: '{task_description}' using model: '{model_name}' ---")
+    
+    mode = "Refining" if (crew_context or task_context) else "Creating"
+    print(f"--- {mode} Crew for: '{task_description}' using model: '{model_name}' ---")
 
     # Local LLM with specified model
     current_llm = LLM(
@@ -110,26 +111,42 @@ def create_crew(task_description, model_name=None):
 
     # Define Meta-Tasks (rest remains same but using current_llm by reference through agents)
     # Task 1: Design the Crew
+    design_description = f"Analyze the request: '{task_description}'. \n"
+    
+    if crew_context or task_context:
+        design_description += "This is a REFINEMENT/UPDATE request based on existing configuration.\n"
+        if crew_context:
+            design_description += f"\nCurrent Crew Configuration:\n```markdown\n{crew_context}\n```\n"
+        if task_context:
+            design_description += f"\nCurrent Task Content:\n```markdown\n{task_context}\n```\n"
+        design_description += f"\nBased on the user feedback above, MODIFY and IMPROVE the existing configuration while preserving its structure.\n"
+    else:
+        design_description += "Plan the Agents and Tasks needed.\n"
+    
+    design_description += f"Consider the structure used in this EXAMPLE of a good Crew:\n"
+    design_description += f"```markdown\n{crew_example}\n```\n"
+    
     design_task = Task(
-        description=f"Analyze the request: '{task_description}'. \n"
-                    f"Plan the Agents and Tasks needed.\n"
-                    f"Consider the structure used in this EXAMPLE of a good Crew:\n"
-                    f"```markdown\n{crew_example}\n```\n"
-                    f"Design a similar structure for the new request.",
+        description=design_description,
         expected_output="A plan for the agents and tasks.",
         agent=architect
     )
 
     # Task 2: Write Crew.md
+    write_crew_description = f"Write the 'Crew.md' file.\n"
+    write_crew_description += "RULES:\n"
+    write_crew_description += "1. OUTPUT MUST BE MARKDOWN, NOT PYTHON.\n"
+    write_crew_description += f"2. Follow this EXACT format (Example):\n```markdown\n{crew_example}\n```\n"
+    write_crew_description += f"3. Use the syntax rules:\n{crew_instructions}\n"
+    write_crew_description += "4. Do not include ```markdown or ``` tags if possible, just the content.\n"
+    write_crew_description += "5. IMPORTANT: Do NOT use '###' for section headers (e.g. '### Phase 1'). '###' is ONLY for Agent Names and Task Names. Use '**Bold**' for dividers.\n"
+    
+    if crew_context:
+        write_crew_description += f"\nMODIFICATION MODE: Modify the existing Crew configuration below based on user feedback:\n"
+        write_crew_description += f"```markdown\n{crew_context}\n```\n"
+    
     write_crew_task = Task(
-        description=f"Write the 'Crew.md' file.\n"
-                    f"RULES:\n"
-                    f"1. OUTPUT MUST BE MARKDOWN, NOT PYTHON.\n"
-                    f"2. Follow this EXACT format (Example):\n"
-                    f"```markdown\n{crew_example}\n```\n"
-                    f"3. Use the syntax rules:\n{crew_instructions}\n"
-                    f"4. Do not include ```markdown or ``` tags if possible, just the content.\n"
-                    f"5. IMPORTANT: Do NOT use '###' for section headers (e.g. '### Phase 1'). '###' is ONLY for Agent Names and Task Names. Use '**Bold**' for dividers.\n",
+        description=write_crew_description,
         expected_output="The content for Crew.md.",
         agent=writer
     )
@@ -149,12 +166,17 @@ def create_crew(task_description, model_name=None):
     )
 
     # Task 4: Write Task.md
+    write_task_description = f"Write the 'Task.md' file.\n"
+    write_task_description += "1. It must start with '# User Task for Agents'.\n"
+    write_task_description += f"2. Follow this format:\n```markdown\n{task_example}\n```\n"
+    write_task_description += "3. Include the detailed prompt for the crew.\n"
+    
+    if task_context:
+        write_task_description += f"\nMODIFICATION MODE: Modify the existing Task content below based on user feedback:\n"
+        write_task_description += f"```markdown\n{task_context}\n```\n"
+    
     write_task_input_task = Task(
-        description=f"Write the 'Task.md' file.\n"
-                    f"1. It must start with '# User Task for Agents'.\n"
-                    f"2. Follow this format:\n"
-                    f"```markdown\n{task_example}\n```\n"
-                    f"3. Include the detailed prompt for the crew.",
+        description=write_task_description,
         expected_output="The content for Task.md.",
         agent=writer
     )
