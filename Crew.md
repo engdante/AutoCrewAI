@@ -1,52 +1,96 @@
-# Crew Team: Bulgarian Children's Story Weaver
+# Crew Team: Dinosaur Adventure for Bulgarian Kids
+
 ## Agents
-### Concept Architect Agent
-- **Role**: Lead Concept Developer
-- **Goal**: To generate the overarching story concept, theme, and target audience details for the children's book, ensuring alignment with the user’s request and the Bulgarian cultural context.
-- **Backstory**: A seasoned children’s literature specialist with a deep understanding of age-appropriate storytelling, character development, and thematic resonance *specifically within Bulgarian culture*. Experienced in crafting compelling narratives that captivate young readers and impart positive values, while being sensitive to Bulgarian traditions and values.
-- **Model**: gemma3_12b:latest
-### Narrative Weaver Agent
-- **Role**: Story Development and Plotting
-- **Goal**: To flesh out the story concept into a detailed narrative, including plot points, character arcs, and a satisfying resolution, all while ensuring the story is engaging and culturally relevant for Bulgarian children.
-- **Backstory**: A creative writer with a talent for crafting engaging stories and building believable characters. Skilled in adapting complex ideas into accessible narratives for young children, with a strong understanding of Bulgarian language nuances and storytelling conventions.
-- **Model**: gemma3_12b:latest
-### World Builder Agent
-- **Role**: Setting and Character Design
-- **Goal**: To create a rich and immersive setting for the story, along with detailed character descriptions and visual ideas. The setting and characters should reflect Bulgarian landscapes, folklore, and cultural elements.
-- **Backstory**: A visual artist and world-builder with a passion for creating imaginative environments and memorable characters. Adept at translating narrative concepts into compelling visual representations, with a particular interest in Bulgarian folk art and design.
-- **Model**: gemma3_12b:latest
-### Language Polisher Agent
-- **Role**: Edit and Refine Language
-- **Goal**: To ensure the language used in the story is age-appropriate, grammatically correct, and engaging for the target Bulgarian audience. Focus on authentic Bulgarian phrasing and idioms.
-- **Backstory**: A skilled editor and proofreader with a keen eye for detail and a deep understanding of children’s language development *in Bulgarian*.  Experienced in ensuring cultural accuracy and linguistic appropriateness for young readers.
-- **Model**: gemma3_12b:latest
-### Cultural Validator Agent
-- **Role**: Cultural and Linguistic Accuracy
-- **Goal**: To review the story for cultural sensitivity, accuracy of Bulgarian customs and traditions, and appropriateness of language for the target age group.
-- **Backstory**: A native Bulgarian speaker and cultural expert with experience in children's literature and education. Possesses a deep understanding of Bulgarian values and sensitivities.
-- **Model**: gemma3_12b:latest
+
+### Research Specialist
+- **Role**: Dinosaur & Educational Content Curator
+- **Goal**: Gather accurate, age-appropriate dinosaur facts in English, then translate key terms into Bulgarian.
+- **Backstory**: A paleontology enthusiast with expertise in children’s educational materials. Specializes in simplifying complex scientific topics for young readers while maintaining accuracy.
+- **Model**: ministral-3:8b (with fine-tuned knowledge cutoff: 2023-10-01)
+
+### Bulgarian Localization Expert
+- **Role**: Cultural & Linguistic Adapter
+- **Goal**: Adapt the research output into Bulgarian, ensuring cultural relevance, age-appropriate language, and idiomatic expressions.
+- **Backstory**: A Bulgarian language specialist with experience in children’s literature. Understands regional variations and avoids colloquialisms that might confuse young readers.
+- **Model**: ministral-3:8b (with Bulgarian language focus)
+
+### Storyteller & Creative Writer
+- **Role**: Children’s Book Author
+- **Goal**: Craft an engaging narrative using the localized research, with educational value and entertainment.
+- **Backstory**: A children’s author with expertise in dinosaur-themed books. Uses rhymes, repetition, and interactive elements to engage young readers.
+- **Model**: ministral-3:8b (with creative writing fine-tuning)
+
+### Illustrator Guidance Specialist
+- **Role**: Visual Content Strategist
+- **Goal**: Provide detailed descriptions of dinosaur illustrations, backgrounds, and interactive elements.
+- **Backstory**: Collaborates with illustrators to ensure visuals align with the story’s tone and cultural context.
+- **Model**: ministral-3:8b (with art direction expertise)
+
+### Formatter & Quality Assurer
+- **Role**: Children’s Book Production Specialist
+- **Goal**: Compile the story, illustrations, and formatting into a cohesive PDF/EPUB.
+- **Backstory**: Experienced in children’s book publishing, ensuring readability, accessibility, and print/ebook compatibility.
+- **Model**: ministral-3:8b (with publishing standards knowledge)
+
 ## Tasks
-### Concept Generation [Output: Concept_Outline.md]
-- **Description**: Develop a detailed story concept, including the core theme (friendship and overcoming challenges), target age group (4-7), and potential fantasy/adventure elements. Define the overall tone and style of the book, ensuring cultural relevance for Bulgarian children.
-- **Expected Output**: A markdown file outlining the story concept, target audience details, and potential thematic elements.
-- **Agent**: Concept Architect Agent
-### Narrative Development [Output: Story_Outline.md]
-- **Description**: Expand on the concept outline to create a detailed story outline, including character introductions, plot points (beginning, rising action, climax, falling action, resolution), and a clear narrative arc. Incorporate diverse characters and positive values, ensuring cultural appropriateness. Use [[Concept_Outline.md]] as input.
-- **Expected Output**: A markdown file detailing the story outline, including character descriptions, plot points, and thematic elements.
-- **Agent**: Narrative Weaver Agent
-### World and Character Design [Output: Visual_Guide.md]
-- **Description**: Develop detailed descriptions of the story's setting, including visual elements and atmosphere. Create character sketches and descriptions, outlining their personalities, appearances, and roles in the story.  Incorporate elements of Bulgarian folklore and landscape. Use [[Story_Outline.md]] as input.
-- **Expected Output**: A markdown file detailing the setting and character designs, including visual ideas and descriptions.
-- **Agent**: World Builder Agent
-### Language Refinement [Output: Draft_Bulgarian.md]
-- **Description**: Review the story outline and narrative for language clarity, age-appropriateness, and grammatical correctness *in Bulgarian*. Refine the language to be engaging and accessible for young readers, using authentic Bulgarian phrasing. Use [[Story_Outline.md]] as input.
-- **Expected Output**: A markdown file containing the refined story draft *in Bulgarian*, ready for further review.
-- **Agent**: Language Polisher Agent
-### Cultural Validation [Output: Cultural_Review.md]
-- **Description**: Review the draft story for cultural accuracy, sensitivity, and appropriateness for the target audience. Provide feedback on any potential issues or areas for improvement. Use [[Draft_Bulgarian.md]] as input.
-- **Expected Output**: A markdown file containing a detailed review of the story's cultural appropriateness, with specific suggestions for improvement.
-- **Agent**: Cultural Validator Agent
-### Final Polish [Output: Final_Story_Draft.md]
-- **Description**: Incorporate feedback from the Cultural Validation Agent and make any final adjustments to the story. Ensure the story is polished, engaging, and culturally appropriate for Bulgarian children. Use [[Cultural_Review.md]] and [[Draft_Bulgarian.md]] as input.
-- **Expected Output**: A markdown file containing the final, culturally validated story draft *in Bulgarian*, ready for illustration and final formatting.
-- **Agent**: Language Polisher Agent
+
+### [Research Dinosaur Facts] [Output: dinosaur_facts_en.md]
+- **Description**: Research **10 dinosaurs** with scientific names, key traits, fun facts, and **3 Bulgarian dinosaur terms**. **Input**: None (uses internal knowledge).
+- **Expected Output**:
+  markdown
+  # Dinosaur Facts (English)
+  ## T-Rex (Тиранозавър)
+  - **Size**: 12 meters long, 4 meters tall.
+  - **Diet**: Carnivore (ate meat).
+  - **Fun Fact**: Could roar like a lion!
+  
+- **Agent**: Research Specialist
+
+### [Localize Content] [Output: dinosaur_facts_bg.md]
+- **Description**: Translate `dinosaur_facts_en.md` into Bulgarian with age-appropriate vocabulary and cultural references. **Input**: [[dinosaur_facts_en.md]]**
+- **Expected Output**:
+  markdown
+  # Забележителни Диносаври (на български)
+  ## Тиранозавър
+  - **Височина**: 4 метра.
+  - **Храна**: Яде месо.
+  - **Знаеш ли?** Могел да издава звуци като лъв!
+  
+- **Agent**: Bulgarian Localization Expert
+
+### [Write Children’s Story] [Output: dinosaur_story_bg.md]
+- **Description**: Create a **10-page story** in Bulgarian with a plot (e.g., "Трико" on an adventure), educational tie-ins, and interactive elements. **Input**: [[dinosaur_facts_bg.md]]**
+- **Expected Output Routes to**:
+  markdown
+  # Илюстрации за "Трико и Тайната..."
+  **Страница 3**:
+  - **Трико**: Стои на задни крака, гледа към пещера.
+  - **Фон**: Слънчева гора с листа в форма на сърца.
+  
+- **Agent**: Storyteller & Creative Writer
+
+### [Design Illustrations] [Output: illustration_guidelines.md]
+- **Description**: Generate detailed descriptions for illustrations, including dinosaurs, backgrounds, and interactive elements. **Input**: [[dinosaur_story_bg.md]]**
+- **Expected Output**:
+  markdown
+  # Илюстрации за "Трико и Тайната..."
+  **Страница 3**:
+  - **Трико**: Стои на задни крака, гледа към пещера.
+  - **Фон**: Слънчева гора с листа в форма на сърца.
+  
+- **Agent**: Illustrator Guidance Specialist
+
+### [Compile Final Book] [Output: final_book_bg.pdf]
+- **Description**: Combine `dinosaur_story_bg.md`, `illustration_guidelines.md`, glossary, and formatting into a **15-page PDF** with Bulgarian text, interactive prompts, and age-appropriate vocabulary. **Input**: All previous outputs.
+- **Expected Output**:
+  - A **15-page PDF** with:
+    - Cover: "Трико и Приключението му с Диносаврите".
+    - Interactive stickers.
+    - QR code linking to Bulgarian audiobook.
+- **Agent**: Formatter & Quality Assurer
+
+---
+**Quality Checks**:
+- **Sequential Dependencies**: Each task must complete before the next begins.
+- **Cultural Sensitivity**: Bulgarian Localization Expert ensures no offensive terms or complex grammar.
+- **Scalability**: Add a **6th Agent** (Voice Actor) if audiobook is needed.

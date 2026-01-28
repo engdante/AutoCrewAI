@@ -54,6 +54,24 @@ def parse_crew_md(file_path, task_input_content):
     title_match = re.search(r'^# Crew Team: (.*)', content, re.MULTILINE)
     crew_title = title_match.group(1).strip() if title_match else "Unnamed Crew"
 
+    # Initialize configuration defaults
+    crew_architecture = "sequential"
+    crew_supervisor_agent_name = None
+
+    # Parse Configuration section
+    config_section_match = re.search(r'## Configuration(.*?)(## Agents|$)', content, re.DOTALL)
+    if config_section_match:
+        config_content = config_section_match.group(1)
+        arch_match = re.search(r'- Architecture: (.*)', config_content)
+        if arch_match:
+            crew_architecture = arch_match.group(1).strip().lower()
+        
+        supervisor_match = re.search(r'- Supervisor Agent: (.*)', config_content)
+        if supervisor_match:
+            sup_name = supervisor_match.group(1).strip()
+            if sup_name.lower() != 'none': # 'None' indicates no supervisor
+                crew_supervisor_agent_name = sup_name
+    
     # Split into Agents and Tasks sections
     agents_section = re.search(r'## Agents(.*?)(## Tasks|$)', content, re.DOTALL)
     tasks_section = re.search(r'## Tasks(.*)', content, re.DOTALL)
@@ -159,7 +177,7 @@ def parse_crew_md(file_path, task_input_content):
                     )
                 })
 
-    return crew_title, list(agents.values()), tasks_data
+    return crew_title, list(agents.values()), tasks_data, crew_architecture, crew_supervisor_agent_name
 
 def run_crew(crew_file, task_file):
     print(f"--- Loading Crew from {crew_file} ---")
@@ -169,8 +187,33 @@ def run_crew(crew_file, task_file):
         with open(task_file, 'r', encoding='utf-8') as f:
             task_input_content = f.read()
     
-    title, agents, tasks_data = parse_crew_md(crew_file, task_input_content)
+    title, agent_list, tasks_data, architecture, supervisor_agent_name = parse_crew_md(crew_file, task_input_content)
     
+    # Convert agent_list to a dictionary for easier lookup by name
+    agents_dict = {agent.role: agent for agent in agent_list} # Assuming role is unique and used as identifier
+
+    crew_process = Process.sequential
+    manager_agent = None
+
+    if architecture == "hierarchical":
+        crew_process = Process.hierarchical
+        if supervisor_agent_name:
+            # Try to find supervisor by the exact name from Crew.md
+            manager_agent = agents_dict.get(supervisor_agent_name)
+            if not manager_agent:
+                # Fallback: try to find an agent whose name contains "supervisor" or "manager"
+                # This is a bit risky if multiple agents contain these keywords, 
+                # but provides robustness if the exact name isn't matched.
+                for agent_name, agent_obj in agents_dict.items():
+                    if "supervisor" in agent_name.lower() or "manager" in agent_name.lower():
+                        manager_agent = agent_obj
+                        print(f"Warning: Exact supervisor agent '{supervisor_agent_name}' not found. Using '{agent_name}' as fallback manager agent.")
+                        break
+
+            if not manager_agent:
+                print(f"Error: Hierarchical architecture specified, but supervisor agent '{supervisor_agent_name}' not found.")
+                return
+
     # 1. Logic: Skip Style Analysis if book_summary.md already exists in output
     book_summary_path = os.path.join(OUTPUT_DIR, "book_summary.md")
     if os.path.exists(book_summary_path):
@@ -198,7 +241,7 @@ def run_crew(crew_file, task_file):
     feedback_path = os.path.join(OUTPUT_DIR, "Task_Feedback.md")
     if os.path.exists(feedback_path):
         print(f"--- [FEEDBACK] Task_Feedback.md found in output/. Injecting into Enrichment task... ---")
-        with open(feedback_path, "r", encoding="utf-8") as f:
+        with open(feedback_path, "r", encoding='utf-8') as f:
             feedback_content = f.read()
         
         for td in tasks_data:
@@ -209,16 +252,19 @@ def run_crew(crew_file, task_file):
                 # We only inject into the first matching task (the main production one)
                 break
 
-    if not agents or not tasks_data:
+    if not agent_list or not tasks_data:
         print("Error: No agents or tasks found. Check your Crew.md syntax.")
         return
 
-    print(f"Starting Crew: {title}")
+    print(f"Starting Crew: {title} (Architecture: {architecture.upper()})")
+    if manager_agent:
+        print(f"    Manager Agent: {manager_agent.role}")
     
     crew = Crew(
-        agents=agents,
+        agents=agent_list,
         tasks=[td["task"] for td in tasks_data],
-        process=Process.sequential,
+        process=crew_process,
+        manager_agent=manager_agent if manager_agent else None, # Pass manager_agent only if hierarchical
         verbose=True
     )
 

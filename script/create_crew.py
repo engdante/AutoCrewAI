@@ -241,8 +241,16 @@ def create_crew(
     write_crew_description += "4. Do not include ```markdown or ``` tags if possible, just the content.\n"
     write_crew_description += "5. IMPORTANT: Do NOT use '###' for section headers (e.g. '### Phase 1'). '###' is ONLY for Agent Names and Task Names. Use '**Bold**' for dividers.\n"
     
+    # New: Add architecture configuration to Crew.md
+    write_crew_description += "\n6. Include a '## Configuration' section at the very beginning of the Crew.md file, immediately after '# Crew Team:'.\n"
+    write_crew_description += f"   - It must specify 'Architecture: {architecture}'.\n"
     if enable_supervisor:
-        write_crew_description += "\n6. SUPERVISOR IMPLEMENTATION:\n"
+        write_crew_description += f"   - It must specify 'Supervisor Agent: [The Name of the Supervisor Agent you create, e.g., 'Project Manager']'.\n"
+        write_crew_description += "     - IMPORTANT: Identify the supervisor agent's name from the agent you create with the role of a supervisor/manager.\n"
+    write_crew_description += "   - Example:\n     ```markdown\n     ## Configuration\n     - Architecture: sequential\n     - Supervisor Agent: None\n     ```\n"
+
+    if enable_supervisor:
+        write_crew_description += "\n7. SUPERVISOR IMPLEMENTATION:\n"
         write_crew_description += "   - Create a Supervisor agent (e.g., 'Editorial Director', 'Quality Guardian', 'Project Manager')\n"
         write_crew_description += f"   - Add line: **Model**: {supervisor_model}\n"
         write_crew_description += "   - Create checkpoint tasks like:\n"
@@ -252,7 +260,7 @@ def create_crew(
         write_crew_description += "     - **Agent**: [Supervisor Name]\n"
     
     if enable_tool_agent:
-        write_crew_description += "\n7. TOOL AGENT IMPLEMENTATION:\n"
+        write_crew_description += "\n8. TOOL AGENT IMPLEMENTATION:\n"
         write_crew_description += "   - Create a Tool Agent (e.g., 'Research Assistant', 'Information Gatherer')\n"
         write_crew_description += "   - Add line: **Tools**: FileReadTool, WebsiteSearchTool\n"
         write_crew_description += "   - This agent handles all file reading, web searches, and data extraction\n"
@@ -264,27 +272,29 @@ def create_crew(
     
     write_crew_task = Task(
         description=write_crew_description,
-        expected_output="The content for Crew.md with all specified architecture features.",
+        expected_output="The content for Crew.md with all specified architecture features, including the new Configuration section.",
         agent=writer
     )
 
     # Task 3: Review Crew.md with Architecture Validation
     review_crew_description = f"Review 'Crew.md'.\n"
     review_crew_description += f"1. It must start with '# Crew Team:'.\n"
-    review_crew_description += f"2. It must have '## Agents' and '## Tasks'.\n"
-    review_crew_description += f"3. It must NOT contain `from crewai import` or any Python code.\n"
-    review_crew_description += f"4. It must match the structure of:\n```markdown\n{crew_example}\n```\n"
-    review_crew_description += f"5. CHECK FOR FORBIDDEN HEADERS: If you see '### Phase 1' or similar, CHANGE it to '**Phase 1**' or remove it. '###' is only for Agents and Tasks.\n"
+    review_crew_description += f"2. It must have '## Configuration' section immediately after '# Crew Team:'.\n"
+    review_crew_description += f"3. In '## Configuration': Verify 'Architecture: {architecture}' and 'Supervisor Agent: {'[Name]' if enable_supervisor else 'None'}'.\n"
+    review_crew_description += f"4. It must have '## Agents' and '## Tasks'.\n"
+    review_crew_description += f"5. It must NOT contain `from crewai import` or any Python code.\n"
+    review_crew_description += f"6. It must match the structure of:\n```markdown\n{crew_example}\n```\n"
+    review_crew_description += f"7. CHECK FOR FORBIDDEN HEADERS: If you see '### Phase 1' or similar, CHANGE it to '**Phase 1**' or remove it. '###' is only for Agents and Tasks.\n"
     
     if enable_supervisor:
-        review_crew_description += "\n6. VERIFY SUPERVISOR:\n"
+        review_crew_description += "\n8. VERIFY SUPERVISOR:\n"
         review_crew_description += "   - Must have one Supervisor agent\n"
         review_crew_description += f"   - Supervisor must use model: {supervisor_model}\n"
         review_crew_description += "   - Must have quality gate tasks with APPROVED/REVISE logic\n"
         review_crew_description += "   - Supervisor tasks must NOT create content, only evaluate\n"
     
     if enable_tool_agent:
-        review_crew_description += "\n7. VERIFY TOOL AGENT:\n"
+        review_crew_description += "\n9. VERIFY TOOL AGENT:\n"
         review_crew_description += "   - Must have one Tool Agent\n"
         review_crew_description += "   - Tool Agent must list: **Tools**: FileReadTool, WebsiteSearchTool\n"
         review_crew_description += "   - Other agents should reference Tool Agent's outputs\n"
@@ -299,18 +309,22 @@ def create_crew(
     )
 
     # Task 4: Write Task.md
-    write_task_description = f"Write the 'Task.md' file.\n"
-    write_task_description += "1. It must start with '# User Task for Agents'.\n"
-    write_task_description += f"2. Follow this format:\n```markdown\n{task_example}\n```\n"
-    write_task_description += "3. Include the detailed prompt for the crew.\n"
+    write_task_description = f"Write the 'Task.md' file. The file should represent the user's main task for the generated crew.\n"
+    write_task_description += "RULES:\n"
+    write_task_description += "1. It MUST start with '# User Task for Agents'.\n"
+    write_task_description += "2. Immediately after the header, include the EXACT detailed task description provided for the crew. No extra conversational text, no introductions, just the task itself.\n"
+    write_task_description += f"3. Follow this format example closely:\n```markdown\n{task_example}\n```\n"
     
     if task_context:
         write_task_description += f"\nMODIFICATION MODE: Modify the existing Task content below based on user feedback:\n"
         write_task_description += f"```markdown\n{task_context}\n```\n"
+        write_task_description += f"Your goal is to update the detailed task for the crew based on the feedback: '{task_description}'. The output should still be a complete Task.md file."
+    else:
+        write_task_description += f"\nThe detailed task description to include is: '{task_description}'\n"
     
     write_task_input_task = Task(
         description=write_task_description,
-        expected_output="The content for Task.md.",
+        expected_output="The complete and correctly formatted content for Task.md, containing '# User Task for Agents' followed by the detailed task description.",
         agent=writer
     )
 

@@ -373,7 +373,7 @@ class CrewAIGUI:
     def open_generate_dialog(self):
         gen_win = tk.Toplevel(self.root)
         gen_win.title("Generate Crew")
-        gen_win.geometry("800x950")
+        gen_win.geometry("800x850")
         
         # Position centered on main window
         self.root.update_idletasks()
@@ -382,15 +382,23 @@ class CrewAIGUI:
         rw = self.root.winfo_width()
         rh = self.root.winfo_height()
         gx = rx + (rw // 2) - 400
-        gy = ry + (rh // 2) - 475
+        gy = ry + (rh // 2) - 425
         gen_win.geometry(f"+{gx}+{gy}")
         
         gen_win.transient(self.root)
         gen_win.grab_set()
 
+        # --- Layout Frames ---
+        # Pack bottom frames first so they stay visible
+        btn_frame = ttk.Frame(gen_win)
+        btn_frame.pack(side="bottom", fill="x", padx=20, pady=20)
+
+        progress_frame = ttk.Frame(gen_win)
+        progress_frame.pack(side="bottom", fill="x", padx=20, pady=10)
+
         # --- Configuration Frame ---
         config_frame = ttk.LabelFrame(gen_win, text="Generation Settings", style="Section.TLabelframe")
-        config_frame.pack(fill="x", padx=20, pady=10)
+        config_frame.pack(side="top", fill="x", padx=20, pady=10)
         config_frame.columnconfigure(1, weight=1)
         config_frame.columnconfigure(3, weight=1)
 
@@ -404,13 +412,6 @@ class CrewAIGUI:
         task_text.pack(side="left", fill="both", expand=True)
         task_scrollbar.pack(side="right", fill="y")
         self.add_context_menu(task_text)
-
-        # Architecture Selection
-        ttk.Label(config_frame, text="Architecture:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
-        arch_var = tk.StringVar(value="sequential")
-        arch_combo = ttk.Combobox(config_frame, textvariable=arch_var, values=["sequential", "hierarchical"], state="readonly", width=15)
-        arch_combo.grid(row=2, column=1, sticky="w", padx=5, pady=5)
-        arch_combo.current(0) # Force select "sequential"
 
         # Architecture Selection
         ttk.Label(config_frame, text="Architecture:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
@@ -452,9 +453,9 @@ class CrewAIGUI:
         refresh_btn.grid(row=4, column=1, sticky="w", padx=5, pady=5)
 
         # Feedback/Refinement Field
-        ttk.Label(gen_win, text="Feedback / Refinement (for Refine button):", style="Header.TLabel").pack(anchor="w", padx=20, pady=(10, 5))
+        ttk.Label(gen_win, text="Feedback / Refinement (for Refine button):", style="Header.TLabel").pack(side="top", anchor="w", padx=20, pady=(10, 5))
         feedback_frame = ttk.Frame(gen_win)
-        feedback_frame.pack(fill="x", padx=20, pady=5)
+        feedback_frame.pack(side="top", fill="x", padx=20, pady=5)
         feedback_text = tk.Text(feedback_frame, height=3, font=("Segoe UI", 10), wrap="word")
         feedback_scrollbar = ttk.Scrollbar(feedback_frame, orient="vertical", command=feedback_text.yview)
         feedback_text.configure(yscrollcommand=feedback_scrollbar.set)
@@ -462,26 +463,22 @@ class CrewAIGUI:
         feedback_scrollbar.pack(side="right", fill="y")
         self.add_context_menu(feedback_text)
 
-        # Log Output
-        ttk.Label(gen_win, text="Generation Log:", style="Header.TLabel").pack(anchor="w", padx=20, pady=(10, 5))
+        # Log Output (Expands to fill remaining space)
+        ttk.Label(gen_win, text="Generation Log:", style="Header.TLabel").pack(side="top", anchor="w", padx=20, pady=(10, 5))
         log_frame = ttk.Frame(gen_win)
-        log_frame.pack(fill="both", expand=True, padx=20)
+        log_frame.pack(side="top", fill="both", expand=True, padx=20)
         log_text = tk.Text(log_frame, font=("Consolas", 9), wrap="word", bg="#f0f0f0")
         log_scroll = ttk.Scrollbar(log_frame, command=log_text.yview)
         log_text.configure(yscrollcommand=log_scroll.set)
         log_text.pack(side="left", fill="both", expand=True)
         log_scroll.pack(side="right", fill="y")
 
-        # Progress UI
-        progress_frame = ttk.Frame(gen_win)
-        progress_frame.pack(fill="x", padx=20, pady=10)
+        # Progress UI (in bottom frame)
         progress = ttk.Progressbar(progress_frame, mode="indeterminate")
         status_lbl = ttk.Label(progress_frame, text="Ready", font=("Segoe UI", 9, "italic"))
         status_lbl.pack(anchor="w")
 
-        btn_frame = ttk.Frame(gen_win)
-        btn_frame.pack(fill="x", padx=20, pady=20)
-
+        # Define functions BEFORE creating buttons
         def run_generation():
             description = task_text.get("1.0", tk.END).strip()
             sel_model = model_name_var.get().strip()
@@ -660,6 +657,16 @@ create_crew(
                 log_text.insert(tk.END, f"\nCRITICAL ERROR: {msg}\n")
 
             threading.Thread(target=thread_target, daemon=True).start()
+
+        # Create Buttons (in bottom frame) - NOW it's safe to use run_generation/refinement
+        gen_btn = ttk.Button(btn_frame, text="Generate Crew", command=run_generation)
+        gen_btn.pack(side="left", padx=(0, 10), expand=True, fill="x")
+        
+        refine_btn = ttk.Button(btn_frame, text="Refine Crew", command=run_refinement)
+        refine_btn.pack(side="left", padx=(0, 10), expand=True, fill="x")
+        
+        close_btn = ttk.Button(btn_frame, text="Close", command=gen_win.destroy)
+        close_btn.pack(side="right")
 
     def create_widgets(self):
         # Main Layout
