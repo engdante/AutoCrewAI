@@ -11,8 +11,107 @@ class CrewModel:
     def __init__(self):
         self.agents = []
         self.tasks = []
-        self.crew_file = "Crew.md"
-        self.task_file = "Task.md"
+        self.crews_dir = "crews"
+        self.current_crew_name = "default"
+        self.current_crew_path = os.path.join(self.crews_dir, "default")
+        self.crew_file = os.path.join(self.current_crew_path, "Crew.md")
+        self.task_file = os.path.join(self.current_crew_path, "Task.md")
+        
+        # Ensure crews dir exists
+        if not os.path.exists(self.crews_dir):
+            os.makedirs(self.crews_dir)
+
+    def get_crews(self):
+        crews = []
+        if os.path.exists(self.crews_dir):
+            for item in os.listdir(self.crews_dir):
+                path = os.path.join(self.crews_dir, item)
+                if os.path.isdir(path):
+                    crews.append(item)
+        return sorted(crews)
+
+    def set_active_crew(self, crew_name):
+        self.current_crew_name = crew_name
+        self.current_crew_path = os.path.join(self.crews_dir, crew_name)
+        self.crew_file = os.path.join(self.current_crew_path, "Crew.md")
+        self.task_file = os.path.join(self.current_crew_path, "Task.md")
+        # Ensure input folder exists for older crews
+        input_dir = os.path.join(self.current_crew_path, "input")
+        if not os.path.exists(input_dir):
+            try:
+                os.makedirs(input_dir)
+            except: pass
+        self.load_data()
+
+    def create_new_crew(self, name, description):
+        folder_name = "".join(x for x in name if x.isalnum() or x in "._- ")
+        folder_path = os.path.join(self.crews_dir, folder_name)
+        
+        if os.path.exists(folder_path):
+            return False, "Crew already exists"
+            
+        try:
+            os.makedirs(folder_path)
+            os.makedirs(os.path.join(folder_path, "output"))
+            os.makedirs(os.path.join(folder_path, "input"))
+            
+            # Create json info
+            import json
+            info = {
+                "name": name,
+                "description": description,
+                "folder": folder_name
+            }
+            with open(os.path.join(folder_path, "crew.json"), 'w', encoding='utf-8') as f:
+                json.dump(info, f, indent=4)
+                
+            # Create empty placeholder files
+            with open(os.path.join(folder_path, "Crew.md"), 'w', encoding='utf-8') as f:
+                f.write(f"# Crew Team: {name}\n\n## Agents\n\n## Tasks\n")
+            
+            with open(os.path.join(folder_path, "Task.md"), 'w', encoding='utf-8') as f:
+                f.write(f"# User Task for Agents\n\n{description}\n")
+
+            return True, folder_name
+        except Exception as e:
+            return False, str(e)
+
+    def rename_crew(self, current_name, new_name):
+        # 1. Check if new name is valid and available
+        new_folder_name = "".join(x for x in new_name if x.isalnum() or x in "._- ")
+        if not new_folder_name:
+            return False, "Invalid name"
+            
+        current_path = os.path.join(self.crews_dir, current_name)
+        new_path = os.path.join(self.crews_dir, new_folder_name)
+        
+        if os.path.exists(new_path):
+             return False, "Crew name/folder already exists"
+        
+        try:
+            # 2. Rename directory
+            os.rename(current_path, new_path)
+            
+            # 3. Update crew.json
+            json_path = os.path.join(new_path, "crew.json")
+            if os.path.exists(json_path):
+                import json
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                data['name'] = new_name
+                data['folder'] = new_folder_name
+                
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=4)
+            
+            # 4. Update internal state if this was active
+            if self.current_crew_name == current_name:
+                self.set_active_crew(new_folder_name)
+                
+            return True, new_folder_name
+        except Exception as e:
+            return False, str(e)
 
     def load_data(self):
         self.agents = []
@@ -95,7 +194,7 @@ class CrewModel:
     def save_data(self, agents_data, tasks_data, user_task_content):
         try:
             # Crew
-            crew_output = "# Crew Team: Generated Crew\n\n## Agents\n\n"
+            crew_output = f"# Crew Team: {self.current_crew_name}\n\n## Agents\n\n"
             for a in agents_data:
                 if not a['name']: continue
                 crew_output += f"### {a['name']}\n"
@@ -323,7 +422,14 @@ class CrewAIGUI:
             try:
                 python_exe = self.get_python_exe()
                 # Unbuffer output for real-time streaming
-                cmd = [python_exe, "-u", "script/run_crew.py"]
+                cmd = [
+                    python_exe, 
+                    "-u", 
+                    "script/run_crew.py", 
+                    "--crew-file", self.model.crew_file,
+                    "--task-file", self.model.task_file,
+                    "--output-dir", os.path.join(self.model.current_crew_path, "output")
+                ]
                 
                 process = subprocess.Popen(
                     cmd, 
@@ -509,6 +615,7 @@ class CrewAIGUI:
                     cmd = [python_exe, "-u", "script/create_crew.py", description]
                     if sel_model: cmd.extend(["--model", sel_model])
                     cmd.extend(["--architecture", selected_arch])
+                    cmd.extend(["--output-dir", self.model.current_crew_path])
                     if sup_enabled:
                         cmd.append("--supervisor")
                         if sup_model: cmd.extend(["--supervisor-model", sup_model])
@@ -569,8 +676,8 @@ class CrewAIGUI:
                 messagebox.showwarning("Warning", "Please enter feedback/refinement instructions.")
                 return
 
-            crew_file = "Crew.md"
-            task_file = "Task.md"
+            crew_file = self.model.crew_file
+            task_file = self.model.task_file
             if not os.path.exists(crew_file) or not os.path.exists(task_file):
                 messagebox.showwarning("Warning", "Crew.md or Task.md not found.")
                 return
@@ -606,7 +713,8 @@ create_crew(
     architecture="{selected_arch}",
     enable_supervisor={sup_enabled},
     enable_tool_agent={tool_agent_enabled_flag},
-    supervisor_model="{esc(sup_model)}" if "{sup_model}" else None
+    supervisor_model="{esc(sup_model)}" if "{sup_model}" else None,
+    output_dir=r"{self.model.current_crew_path}"
 )
 '''
 
@@ -677,6 +785,19 @@ create_crew(
         toolbar = ttk.Frame(self.main_container, padding=10)
         toolbar.pack(side="top", fill="x")
         
+        # Crew Selection
+        ttk.Label(toolbar, text="Crew:").pack(side="left", padx=(0, 5))
+        self.crew_var = tk.StringVar()
+        self.crew_combo = ttk.Combobox(toolbar, textvariable=self.crew_var, state="readonly", width=20)
+        self.crew_combo.pack(side="left", padx=5)
+        self.crew_combo.bind("<<ComboboxSelected>>", self.change_crew)
+        
+        ttk.Button(toolbar, text="+ New", command=self.open_new_crew_dialog, width=6).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="Rename", command=self.open_rename_crew_dialog, width=8).pack(side="left", padx=2)
+
+        # Toolbar separators
+        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=10)
+
         # Toolbar buttons
         ttk.Button(toolbar, text="Refresh", command=self.refresh_data).pack(side="left", padx=5)
         ttk.Button(toolbar, text="Save All", command=self.save_all).pack(side="left", padx=5)
@@ -786,6 +907,15 @@ create_crew(
 
     # --- Row Management ---
     def auto_load(self):
+        # Load Crews
+        crews = self.model.get_crews()
+        self.crew_combo['values'] = crews
+        if self.model.current_crew_name in crews:
+            self.crew_combo.set(self.model.current_crew_name)
+        elif crews:
+            self.crew_combo.current(0)
+            self.change_crew(None) # Trigger load
+
         self.model.load_data()
         
         # Populate Agents
@@ -801,13 +931,101 @@ create_crew(
                 self.add_task_row(task)
         else:
             self.add_task_row() # Empty default
-            
+
         # Populate User Task
-        task_content = self.model.load_task()
+        user_task = self.model.load_task()
         self.user_task_text.delete("1.0", tk.END)
-        self.user_task_text.insert("1.0", task_content)
+        self.user_task_text.insert("1.0", user_task)
         
         self.update_agent_dropdowns()
+
+    def change_crew(self, event):
+        new_crew = self.crew_combo.get()
+        if new_crew and new_crew != self.model.current_crew_name:
+            self.model.set_active_crew(new_crew)
+            self.refresh_data()
+
+    def open_new_crew_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Create New Crew")
+        dialog.geometry("400x250")
+        
+        self.root.update_idletasks()
+        rx = self.root.winfo_x()
+        ry = self.root.winfo_y()
+        dialog.geometry(f"+{rx+100}+{ry+100}")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text="Crew Name (Folder Name):").pack(anchor="w", padx=20, pady=(20, 5))
+        name_entry = ttk.Entry(dialog, width=40)
+        name_entry.pack(padx=20, pady=5)
+        
+        ttk.Label(dialog, text="Description:").pack(anchor="w", padx=20, pady=(10, 5))
+        desc_entry = ttk.Entry(dialog, width=40)
+        desc_entry.pack(padx=20, pady=5)
+        
+        def create():
+            name = name_entry.get().strip()
+            desc = desc_entry.get().strip()
+            if not name:
+                messagebox.showwarning("Required", "Please enter a name.")
+                return
+            
+            success, msg = self.model.create_new_crew(name, desc)
+            if success:
+                self.auto_load() # Refresh list
+                self.crew_combo.set(msg)
+                self.change_crew(None)
+                dialog.destroy()
+                messagebox.showinfo("Success", f"Crew '{msg}' created!")
+            else:
+                messagebox.showerror("Error", f"Failed to create crew: {msg}")
+        
+        ttk.Button(dialog, text="Create", command=create).pack(pady=20)
+
+    def open_rename_crew_dialog(self):
+        current_crew = self.model.current_crew_name
+        if not current_crew: return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Rename Crew: {current_crew}")
+        dialog.geometry("400x150")
+        
+        self.root.update_idletasks()
+        rx = self.root.winfo_x()
+        ry = self.root.winfo_y()
+        dialog.geometry(f"+{rx+100}+{ry+100}")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text="New Crew Name:").pack(anchor="w", padx=20, pady=(20, 5))
+        name_entry = ttk.Entry(dialog, width=40)
+        name_entry.insert(0, current_crew)
+        name_entry.pack(padx=20, pady=5)
+        
+        def do_rename():
+            new_name = name_entry.get().strip()
+            if not new_name:
+                messagebox.showwarning("Required", "Please enter a name.")
+                return
+            
+            if new_name == current_crew:
+                dialog.destroy()
+                return
+
+            success, msg = self.model.rename_crew(current_crew, new_name)
+            if success:
+                self.auto_load() # Refresh list and reload if active
+                # Select the renamed crew
+                self.crew_combo.set(msg) 
+                
+                dialog.destroy()
+                messagebox.showinfo("Success", f"Renamed to '{msg}'!")
+            else:
+                messagebox.showerror("Error", f"Failed to rename: {msg}")
+        
+        ttk.Button(dialog, text="Rename", command=do_rename).pack(pady=10)
 
     def add_agent_row(self, data=None):
         frame = ttk.LabelFrame(self.agents_container, text="Agent Details", style="Section.TLabelframe")

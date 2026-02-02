@@ -179,7 +179,12 @@ def parse_crew_md(file_path, task_input_content):
 
     return crew_title, list(agents.values()), tasks_data, crew_architecture, crew_supervisor_agent_name
 
-def run_crew(crew_file, task_file):
+def run_crew(crew_file, task_file, output_dir=None):
+    if output_dir:
+        global OUTPUT_DIR
+        OUTPUT_DIR = output_dir
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+
     print(f"--- Loading Crew from {crew_file} ---")
     
     task_input_content = ""
@@ -304,7 +309,17 @@ if __name__ == "__main__":
     if not os.environ.get("OPENAI_API_KEY"):
         print("Warning: OPENAI_API_KEY not found in environment variables.")
     
-    # Look for Crew.md and Task.md in project root
-    crew_file = os.path.join(PROJECT_ROOT, 'Crew.md')
-    task_file = os.path.join(PROJECT_ROOT, 'Task.md')
-    run_crew(crew_file, task_file)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run CrewAI agent team")
+    parser.add_argument("--crew-file", help="Path to Crew.md", default=None)
+    parser.add_argument("--task-file", help="Path to Task.md", default=None)
+    parser.add_argument("--output-dir", help="Directory for output files", default=None)
+    
+    args = parser.parse_args()
+
+    # Look for Crew.md and Task.md in project root if not specified
+    crew_file = args.crew_file if args.crew_file else os.path.join(PROJECT_ROOT, 'Crew.md')
+    task_file = args.task_file if args.task_file else os.path.join(PROJECT_ROOT, 'Task.md')
+    
+    run_crew(crew_file, task_file, args.output_dir)

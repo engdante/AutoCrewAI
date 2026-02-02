@@ -269,6 +269,18 @@ DATA_TOOLS = {
         'context_triggers': ['code documentation', 'technical docs', 'programming docs', 'developer docs'],
         'testing_notes': 'Not yet tested',
         'status': 'untested'
+    },
+    'python_sandbox': {
+        'name': 'PythonSandboxTool',
+        'class': 'PythonSandboxTool',
+        'description': 'A tool for executing Python code in a safe sandbox environment and returning stdout/stderr.',
+        'availability': 'confirmed',
+        'requirements': ['subprocess', 'sys'],
+        'cost': 'free',
+        'suitable_for': ['developer', 'programmer', 'engineer'],
+        'context_triggers': ['execute python', 'run code', 'test script', 'sandbox'],
+        'testing_notes': 'Custom tool for Ralph-Loop',
+        'status': 'confirmed'
     }
 }
 

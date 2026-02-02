@@ -56,7 +56,8 @@ def create_crew(
     architecture="sequential",  # "sequential" or "hierarchical"
     enable_supervisor=False,    # Enable Supervisor agent with veto power
     enable_tool_agent=False,    # Enable dedicated Tool Agent
-    supervisor_model=None       # Optional: different model for Supervisor (e.g., stronger model)
+    supervisor_model=None,      # Optional: different model for Supervisor (e.g., stronger model)
+    output_dir=None             # Optional: directory to save output files
 ):
     """
     Enhanced Crew Creation with Architecture Options
@@ -355,13 +356,21 @@ def create_crew(
 
     print("\n--- Saving Configuration Files ---")
 
-    # Save to project root
-    crew_path = os.path.join(PROJECT_ROOT, "Crew.md")
+    # Determine output directory
+    if output_dir:
+        target_dir = output_dir
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir)
+    else:
+        target_dir = PROJECT_ROOT
+
+    # Save to target directory
+    crew_path = os.path.join(target_dir, "Crew.md")
     with open(crew_path, "w", encoding="utf-8") as f:
         f.write(crew_md_clean)
         print(f"Created {crew_path}")
     
-    task_path = os.path.join(PROJECT_ROOT, "Task.md")
+    task_path = os.path.join(target_dir, "Task.md")
     with open(task_path, "w", encoding="utf-8") as f:
         f.write(task_md_clean)
         print(f"Created {task_path}")
@@ -477,6 +486,12 @@ Examples:
         action="store_true",
         help="Enable dedicated Tool Agent for all external operations"
     )
+
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Directory to save generated files"
+    )
     
     args = parser.parse_args()
     
@@ -486,5 +501,6 @@ Examples:
         architecture=args.architecture,
         enable_supervisor=args.supervisor,
         enable_tool_agent=args.tool_agent,
-        supervisor_model=args.supervisor_model
+        supervisor_model=args.supervisor_model,
+        output_dir=args.output_dir
     )
