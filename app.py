@@ -852,6 +852,55 @@ create_crew(
         
         ttk.Button(self.scrollable_content, text="+ Add Task", command=self.add_task_row).pack(anchor="w", pady=10)
 
+        # Input Files Section
+        ttk.Label(self.scrollable_content, text="Input Files", style="Header.TLabel").pack(anchor="w", pady=(20, 10))
+        
+        # Drop zone frame
+        self.drop_zone_frame = ttk.LabelFrame(self.scrollable_content, text="Drag & Drop Files Here", style="Section.TLabelframe")
+        self.drop_zone_frame.pack(fill="x", pady=(0, 10))
+        
+        # Drop zone label
+        self.drop_zone_label = ttk.Label(
+            self.drop_zone_frame, 
+            text="📁 Drag files here or click 'Add Files' button\nFiles will be copied to the crew's input/ directory",
+            font=("Segoe UI", 10),
+            foreground="gray",
+            justify="center"
+        )
+        self.drop_zone_label.pack(pady=30, padx=20)
+        
+        # Buttons for file management
+        files_btn_frame = ttk.Frame(self.scrollable_content)
+        files_btn_frame.pack(fill="x", pady=(0, 10))
+        
+        ttk.Button(files_btn_frame, text="+ Add Files", command=self.add_input_files).pack(side="left", padx=(0, 5))
+        ttk.Button(files_btn_frame, text="🗑 Remove Selected", command=self.remove_input_files).pack(side="left", padx=5)
+        ttk.Button(files_btn_frame, text="📂 Open Folder", command=self.open_input_folder).pack(side="left", padx=5)
+        ttk.Button(files_btn_frame, text="🔄 Refresh", command=self.refresh_input_files).pack(side="left", padx=5)
+        
+        # File list
+        self.files_list_frame = ttk.Frame(self.scrollable_content)
+        self.files_list_frame.pack(fill="x", pady=(0, 10))
+        
+        # Listbox with scrollbar
+        files_scroll_frame = ttk.Frame(self.files_list_frame)
+        files_scroll_frame.pack(fill="x")
+        
+        self.files_listbox = tk.Listbox(
+            files_scroll_frame, 
+            height=6, 
+            font=("Consolas", 10),
+            selectmode=tk.EXTENDED
+        )
+        files_scrollbar = ttk.Scrollbar(files_scroll_frame, orient="vertical", command=self.files_listbox.yview)
+        self.files_listbox.configure(yscrollcommand=files_scrollbar.set)
+        
+        self.files_listbox.pack(side="left", fill="x", expand=True)
+        files_scrollbar.pack(side="right", fill="y")
+        
+        # Enable drag and drop
+        self.setup_drag_drop()
+
         # User Task Section
         ttk.Label(self.scrollable_content, text="User Task (Task.md)", style="Header.TLabel").pack(anchor="w", pady=(20, 10))
         self.user_task_text_frame = ttk.Frame(self.scrollable_content)
@@ -938,6 +987,9 @@ create_crew(
         self.user_task_text.insert("1.0", user_task)
         
         self.update_agent_dropdowns()
+        
+        # Refresh input files list
+        self.refresh_input_files()
 
     def change_crew(self, event):
         new_crew = self.crew_combo.get()
@@ -1210,6 +1262,202 @@ create_crew(
             messagebox.showinfo("Success", "Saved Crew.md and Task.md successfully!")
         else:
             messagebox.showerror("Error", "Failed to save files. Check console for details.")
+
+    # --- Input Files Management ---
+    
+    def setup_drag_drop(self):
+        """Setup drag and drop functionality for the drop zone"""
+        # Try to enable drag & drop with tkinterdnd2
+        try:
+            from tkinterdnd2 import DND_FILES
+            
+            # Register drop zone for file drops
+            self.drop_zone_frame.drop_target_register(DND_FILES)
+            self.drop_zone_frame.dnd_bind('<<Drop>>', self.on_drop)
+            self.drop_zone_frame.dnd_bind('<<DragEnter>>', self.on_drop_enter)
+            self.drop_zone_frame.dnd_bind('<<DragLeave>>', self.on_drop_leave)
+            
+            # Update label to show drag & drop is enabled
+            self.drop_zone_label.configure(
+                text="📁 Drag files here or click 'Add Files' button\n✅ Drag & Drop enabled\nFiles will be copied to the crew's input/ directory"
+            )
+            print("✅ Drag & Drop enabled (tkinterdnd2 loaded successfully)")
+            
+        except ImportError:
+            # tkinterdnd2 not installed
+            self.drop_zone_label.configure(
+                text="📁 Click 'Add Files' button to add files\n⚠️ Drag & Drop disabled (tkinterdnd2 not installed)\nCommand: pip install tkinterdnd2",
+                foreground="orange"
+            )
+            print("⚠️ Drag & Drop disabled. Install tkinterdnd2: pip install tkinterdnd2")
+            
+        except Exception as e:
+            # tkinterdnd2 installed but failed to initialize (common issue)
+            self.drop_zone_label.configure(
+                text="📁 Click 'Add Files' button to add files\n⚠️ Drag & Drop unavailable (tkinterdnd2 initialization failed)\nNote: This is a known issue with some tkinter versions\nManual file selection works perfectly!",
+                foreground="orange"
+            )
+            print(f"⚠️ Drag & Drop initialization failed: {e}")
+            print("   Note: This is a known compatibility issue with tkinterdnd2")
+            print("   Manual file selection via 'Add Files' button works perfectly!")
+    
+    def on_drop_enter(self, event):
+        """Visual feedback when dragging over drop zone"""
+        self.drop_zone_label.configure(foreground="blue")
+        return event.action
+    
+    def on_drop_leave(self, event):
+        """Reset visual feedback when leaving drop zone"""
+        self.drop_zone_label.configure(foreground="gray")
+        return event.action
+    
+    def on_drop(self, event):
+        """Handle file drop event"""
+        try:
+            files = self.root.tk.splitlist(event.data)
+            self.copy_files_to_input(files)
+            self.drop_zone_label.configure(foreground="gray")
+        except Exception as e:
+            messagebox.showerror("Drop Error", f"Failed to process dropped files: {e}")
+    
+    def add_input_files(self):
+        """Open file dialog to select files to add to input directory"""
+        from tkinter import filedialog
+        
+        files = filedialog.askopenfilenames(
+            title="Select Files to Add to Input Directory",
+            filetypes=[
+                ("All Files", "*.*"),
+                ("Text Files", "*.txt"),
+                ("Markdown Files", "*.md"),
+                ("JSON Files", "*.json"),
+                ("CSV Files", "*.csv"),
+                ("Python Files", "*.py")
+            ]
+        )
+        
+        if files:
+            self.copy_files_to_input(files)
+    
+    def copy_files_to_input(self, file_paths):
+        """Copy files to the crew's input directory"""
+        import shutil
+        
+        input_dir = os.path.join(self.model.current_crew_path, "input")
+        
+        # Ensure input directory exists
+        if not os.path.exists(input_dir):
+            os.makedirs(input_dir)
+        
+        copied_count = 0
+        for file_path in file_paths:
+            if os.path.isfile(file_path):
+                try:
+                    filename = os.path.basename(file_path)
+                    dest_path = os.path.join(input_dir, filename)
+                    
+                    # Check if file already exists
+                    if os.path.exists(dest_path):
+                        response = messagebox.askyesno(
+                            "File Exists", 
+                            f"File '{filename}' already exists. Overwrite?"
+                        )
+                        if not response:
+                            continue
+                    
+                    shutil.copy2(file_path, dest_path)
+                    copied_count += 1
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to copy {filename}: {e}")
+        
+        if copied_count > 0:
+            messagebox.showinfo("Success", f"Copied {copied_count} file(s) to input directory")
+            self.refresh_input_files()
+    
+    def remove_input_files(self):
+        """Remove selected files from input directory"""
+        selected_indices = self.files_listbox.curselection()
+        
+        if not selected_indices:
+            messagebox.showwarning("Warning", "Please select files to remove")
+            return
+        
+        files_to_remove = [self.files_listbox.get(i) for i in selected_indices]
+        
+        response = messagebox.askyesno(
+            "Confirm Delete",
+            f"Are you sure you want to delete {len(files_to_remove)} file(s)?"
+        )
+        
+        if not response:
+            return
+        
+        input_dir = os.path.join(self.model.current_crew_path, "input")
+        removed_count = 0
+        
+        for filename in files_to_remove:
+            file_path = os.path.join(input_dir, filename)
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    removed_count += 1
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to delete {filename}: {e}")
+        
+        if removed_count > 0:
+            messagebox.showinfo("Success", f"Removed {removed_count} file(s)")
+            self.refresh_input_files()
+    
+    def open_input_folder(self):
+        """Open the input folder in file explorer"""
+        input_dir = os.path.join(self.model.current_crew_path, "input")
+        
+        # Ensure directory exists
+        if not os.path.exists(input_dir):
+            os.makedirs(input_dir)
+        
+        # Open folder in file explorer
+        if os.name == 'nt':  # Windows
+            os.startfile(input_dir)
+        elif os.name == 'posix':  # Linux/Mac
+            import subprocess
+            subprocess.Popen(['xdg-open', input_dir])
+    
+    def refresh_input_files(self):
+        """Refresh the list of files in the input directory"""
+        input_dir = os.path.join(self.model.current_crew_path, "input")
+        
+        # Clear current list
+        self.files_listbox.delete(0, tk.END)
+        
+        # Check if directory exists
+        if not os.path.exists(input_dir):
+            os.makedirs(input_dir)
+            return
+        
+        # List all files
+        try:
+            files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+            files.sort()
+            
+            for filename in files:
+                file_path = os.path.join(input_dir, filename)
+                file_size = os.path.getsize(file_path)
+                
+                # Format size
+                if file_size < 1024:
+                    size_str = f"{file_size} B"
+                elif file_size < 1024 * 1024:
+                    size_str = f"{file_size / 1024:.1f} KB"
+                else:
+                    size_str = f"{file_size / (1024 * 1024):.1f} MB"
+                
+                display_text = f"{filename} ({size_str})"
+                self.files_listbox.insert(tk.END, filename)
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to list files: {e}")
+
 
 if __name__ == "__main__":
     root = tk.Tk()

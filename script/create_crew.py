@@ -313,26 +313,35 @@ def create_crew(
     write_task_description = f"Write the 'Task.md' file. The file should represent the user's main task for the generated crew.\n"
     write_task_description += "RULES:\n"
     write_task_description += "1. It MUST start with '# User Task for Agents'.\n"
-    write_task_description += "2. Immediately after the header, include the EXACT detailed task description provided for the crew. No extra conversational text, no introductions, just the task itself.\n"
-    write_task_description += f"3. Follow this format example closely:\n```markdown\n{task_example}\n```\n"
+    write_task_description += "2. After the header, you must ENHANCE and EXPAND the user's task description into a comprehensive, detailed task specification.\n"
+    write_task_description += "3. The enhanced description should:\n"
+    write_task_description += "   - Preserve the CORE INTENT and GOAL of the original user request\n"
+    write_task_description += "   - Add relevant CONTEXT, DETAILS, and SPECIFICS that clarify what needs to be done\n"
+    write_task_description += "   - Include CLEAR OBJECTIVES and EXPECTED OUTCOMES\n"
+    write_task_description += "   - Specify any relevant CONSTRAINTS, REQUIREMENTS, or QUALITY STANDARDS\n"
+    write_task_description += "   - Be written in a professional, clear, and actionable manner\n"
+    write_task_description += "4. DO NOT add conversational filler, greetings, or meta-commentary. Just the enhanced task description.\n"
+    write_task_description += f"5. Follow this format example as a quality reference:\n```markdown\n{task_example}\n```\n"
+    write_task_description += "   Notice how the example is detailed, specific, and comprehensive while remaining focused.\n"
     
     if task_context:
         write_task_description += f"\nMODIFICATION MODE: Modify the existing Task content below based on user feedback:\n"
         write_task_description += f"```markdown\n{task_context}\n```\n"
-        write_task_description += f"Your goal is to update the detailed task for the crew based on the feedback: '{task_description}'. The output should still be a complete Task.md file."
+        write_task_description += f"Your goal is to update and enhance the detailed task for the crew based on the feedback: '{task_description}'. The output should still be a complete Task.md file."
     else:
-        write_task_description += f"\nThe detailed task description to include is: '{task_description}'\n"
+        write_task_description += f"\nThe user's original task request is: '{task_description}'\n"
+        write_task_description += f"Your job is to transform this into a detailed, comprehensive task description that the crew can execute effectively.\n"
     
     write_task_input_task = Task(
         description=write_task_description,
-        expected_output="The complete and correctly formatted content for Task.md, containing '# User Task for Agents' followed by the detailed task description.",
+        expected_output="The complete and correctly formatted content for Task.md, containing '# User Task for Agents' followed by an enhanced, detailed, and comprehensive task description that expands on the user's original request.",
         agent=writer
     )
 
     # Task 5: Review Task.md
     review_task_md_task = Task(
-        description="Review 'Task.md'. Ensure it adheres to the format: '# User Task for Agents' followed by the text. No conversational filler.",
-        expected_output="Clean Task.md content.",
+        description="Review 'Task.md'. Ensure it adheres to the format: '# User Task for Agents' followed by an enhanced, detailed task description. The description should be comprehensive and actionable, NOT just a simple copy of the user's brief input. No conversational filler.",
+        expected_output="Clean, validated Task.md content with enhanced task description.",
         agent=reviewer,
         context=[write_task_input_task]
     )
