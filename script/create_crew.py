@@ -146,13 +146,15 @@ def create_crew(
             task_example = f.read()
     
     # Load tools registry if Tool Agent is enabled
-    tools_info = ""
     if enable_tool_agent:
-        tools_registry_path = os.path.join(SCRIPT_DIR, "tools_registry.py")
-        if os.path.exists(tools_registry_path):
-            with open(tools_registry_path, "r", encoding="utf-8") as f:
-                tools_info = f.read()
-            print(f"    Loaded tools registry")
+        try:
+            from tools_registry import get_tool_agent_tools
+            available_tools = get_tool_agent_tools()
+            tool_names = [tool.name for tool in available_tools]
+            print(f"    Available tools for Tool Agent: {', '.join(tool_names)}")
+        except Exception as e:
+            print(f"    Warning: Could not load tools registry: {e}")
+            available_tools = []
 
     # Build architecture instructions
     architecture_instructions = build_architecture_instructions(
@@ -262,10 +264,15 @@ def create_crew(
     
     if enable_tool_agent:
         write_crew_description += "\n8. TOOL AGENT IMPLEMENTATION:\n"
-        write_crew_description += "   - Create a Tool Agent (e.g., 'Research Assistant', 'Information Gatherer')\n"
-        write_crew_description += "   - Add line: **Tools**: FileReadTool, WebsiteSearchTool\n"
-        write_crew_description += "   - This agent handles all file reading, web searches, and data extraction\n"
-        write_crew_description += "   - Other agents reference Tool Agent's outputs using [[tool_output.md]]\n"
+        write_crew_description += "   - Create a Tool Agent (e.g., 'Research Assistant', 'Information Specialist')\n"
+        if available_tools:
+            tool_names = [tool.name for tool in available_tools]
+            write_crew_description += f"   - Add line: **Tools**: {', '.join(tool_names)}\n"
+        else:
+            write_crew_description += "   - Add line: **Tools**: FileReadTool, DirectoryReadTool\n"
+        write_crew_description += "   - This agent handles ALL external operations: file reading, web search, file navigation\n"
+        write_crew_description += "   - Other agents request information from Tool Agent instead of accessing tools directly\n"
+        write_crew_description += "   - Tool Agent outputs results that other agents can reference using [[tool_results.md]]\n"
     
     if crew_context:
         write_crew_description += f"\nMODIFICATION MODE: Modify the existing Crew configuration below based on user feedback:\n"
@@ -297,7 +304,11 @@ def create_crew(
     if enable_tool_agent:
         review_crew_description += "\n9. VERIFY TOOL AGENT:\n"
         review_crew_description += "   - Must have one Tool Agent\n"
-        review_crew_description += "   - Tool Agent must list: **Tools**: FileReadTool, WebsiteSearchTool\n"
+        if available_tools:
+            tool_names = [tool.name for tool in available_tools]
+            review_crew_description += f"   - Tool Agent must list: **Tools**: {', '.join(tool_names)}\n"
+        else:
+            review_crew_description += "   - Tool Agent must list: **Tools**: FileReadTool, DirectoryReadTool\n"
         review_crew_description += "   - Other agents should reference Tool Agent's outputs\n"
     
     review_crew_description += f"\nRefine it to be perfect."

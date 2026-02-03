@@ -19,6 +19,9 @@ if sys.platform == "win32":
 from crewai import Agent, Task, Crew, Process, LLM
 from dotenv import load_dotenv
 
+# Import tools registry
+from tools_registry import get_tool_agent_tools
+
 # Path configuration
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -97,11 +100,35 @@ def parse_crew_md(file_path, task_input_content):
             else:
                 agent_llm = ollama_llm # Default from config
             
+            # Check if this agent has tools (Tool Agent)
+            tools_match = re.search(r'- \*\*Tools\*\*: (.*)', details)
+            agent_tools = []
+            
+            if tools_match:
+                tools_string = tools_match.group(1).strip()
+                if tools_string:
+                    # Load tools from tools registry
+                    available_tools = get_tool_agent_tools()
+                    tool_names = [t.strip() for t in tools_string.split(',')]
+                    
+                    for tool in available_tools:
+                        if tool.name in tool_names:
+                            agent_tools.append(tool)
+                            print(f"  ✅ Loaded tool '{tool.name}' for agent '{name}'")
+                        else:
+                            print(f"  ⚠️ Tool '{tool.name}' not in requested tools list")
+                    
+                    if not agent_tools:
+                        print(f"  ⚠️ No tools loaded for agent '{name}' - requested tools not available")
+                else:
+                    print(f"  ℹ️ No tools specified for agent '{name}'")
+            
             agents[name] = Agent(
                 role=role.group(1).strip() if role else "",
                 goal=goal.group(1).strip() if goal else "",
                 backstory=backstory.group(1).strip() if backstory else "",
-                llm=agent_llm,  
+                llm=agent_llm,
+                tools=agent_tools,  # Add tools here
                 verbose=True,
                 allow_delegation=False
             )
