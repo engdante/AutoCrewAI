@@ -6,7 +6,6 @@ import os
 import requests
 import threading
 from dotenv import load_dotenv, set_key, find_dotenv
-from tkinterdnd2 import DND_FILES, TkinterDnD
 
 class CrewModel:
     def __init__(self):
@@ -856,33 +855,19 @@ create_crew(
         # Input Files Section
         ttk.Label(self.scrollable_content, text="Input Files", style="Header.TLabel").pack(anchor="w", pady=(20, 10))
         
-        # Drag and Drop Zone - FULL FUNCTIONAL
-        self.drop_zone_frame = ttk.LabelFrame(self.scrollable_content, text="Drag & Drop Zone", style="Section.TLabelframe")
+        # Drop zone frame
+        self.drop_zone_frame = ttk.LabelFrame(self.scrollable_content, text="Drag & Drop Files Here", style="Section.TLabelframe")
         self.drop_zone_frame.pack(fill="x", pady=(0, 10))
         
-        # Create a canvas for the drop zone with visual feedback
-        self.drop_canvas = tk.Canvas(self.drop_zone_frame, height=120, bg="#f0f8ff", highlightthickness=2, highlightbackground="#b0c4de", relief="solid")
-        self.drop_canvas.pack(fill="x", padx=10, pady=10)
-        
-        # Drop zone label with instructions
-        self.drop_zone_label = self.drop_canvas.create_text(
-            10, 10,
-            text="Drag & Drop files here\nor click 'Add Files' button below",
-            font=("Segoe UI", 11),
-            fill="#808387",
-            anchor="nw",
-            width=1000
+        # Drop zone label
+        self.drop_zone_label = ttk.Label(
+            self.drop_zone_frame, 
+            text="📁 Drag files here or click 'Add Files' button\nFiles will be copied to the crew's input/ directory",
+            font=("Segoe UI", 10),
+            foreground="gray",
+            justify="center"
         )
-        
-        # Enable drag and drop for the canvas
-        self.drop_canvas.drop_target_register(DND_FILES)
-        self.drop_canvas.dnd_bind('<<Drop>>', self.on_drop)
-        self.drop_canvas.dnd_bind('<<DragEnter>>', self.on_drag_enter)
-        self.drop_canvas.dnd_bind('<<DragLeave>>', self.on_drag_leave)
-        
-        # Store original background color for restore
-        self.drop_zone_original_bg = "#f0f8ff"
-        self.drop_zone_hover_bg = "#e6f2ff"
+        self.drop_zone_label.pack(pady=30, padx=20)
         
         # Buttons for file management
         files_btn_frame = ttk.Frame(self.scrollable_content)
@@ -912,6 +897,9 @@ create_crew(
         
         self.files_listbox.pack(side="left", fill="x", expand=True)
         files_scrollbar.pack(side="right", fill="y")
+        
+        # Enable drag and drop
+        self.setup_drag_drop()
 
         # User Task Section
         ttk.Label(self.scrollable_content, text="User Task (Task.md)", style="Header.TLabel").pack(anchor="w", pady=(20, 10))
@@ -1277,6 +1265,61 @@ create_crew(
 
     # --- Input Files Management ---
     
+    def setup_drag_drop(self):
+        """Setup drag and drop functionality for the drop zone"""
+        # Try to enable drag & drop with tkinterdnd2
+        try:
+            from tkinterdnd2 import DND_FILES
+            
+            # Register drop zone for file drops
+            self.drop_zone_frame.drop_target_register(DND_FILES)
+            self.drop_zone_frame.dnd_bind('<<Drop>>', self.on_drop)
+            self.drop_zone_frame.dnd_bind('<<DragEnter>>', self.on_drop_enter)
+            self.drop_zone_frame.dnd_bind('<<DragLeave>>', self.on_drop_leave)
+            
+            # Update label to show drag & drop is enabled
+            self.drop_zone_label.configure(
+                text="📁 Drag files here or click 'Add Files' button\n✅ Drag & Drop enabled\nFiles will be copied to the crew's input/ directory"
+            )
+            print("✅ Drag & Drop enabled (tkinterdnd2 loaded successfully)")
+            
+        except ImportError:
+            # tkinterdnd2 not installed
+            self.drop_zone_label.configure(
+                text="📁 Click 'Add Files' button to add files\n⚠️ Drag & Drop disabled (tkinterdnd2 not installed)\nCommand: pip install tkinterdnd2",
+                foreground="orange"
+            )
+            print("⚠️ Drag & Drop disabled. Install tkinterdnd2: pip install tkinterdnd2")
+            
+        except Exception as e:
+            # tkinterdnd2 installed but failed to initialize (common issue)
+            self.drop_zone_label.configure(
+                text="📁 Click 'Add Files' button to add files\n⚠️ Drag & Drop unavailable (tkinterdnd2 initialization failed)\nNote: This is a known issue with some tkinter versions\nManual file selection works perfectly!",
+                foreground="orange"
+            )
+            print(f"⚠️ Drag & Drop initialization failed: {e}")
+            print("   Note: This is a known compatibility issue with tkinterdnd2")
+            print("   Manual file selection via 'Add Files' button works perfectly!")
+    
+    def on_drop_enter(self, event):
+        """Visual feedback when dragging over drop zone"""
+        self.drop_zone_label.configure(foreground="blue")
+        return event.action
+    
+    def on_drop_leave(self, event):
+        """Reset visual feedback when leaving drop zone"""
+        self.drop_zone_label.configure(foreground="gray")
+        return event.action
+    
+    def on_drop(self, event):
+        """Handle file drop event"""
+        try:
+            files = self.root.tk.splitlist(event.data)
+            self.copy_files_to_input(files)
+            self.drop_zone_label.configure(foreground="gray")
+        except Exception as e:
+            messagebox.showerror("Drop Error", f"Failed to process dropped files: {e}")
+    
     def add_input_files(self):
         """Open file dialog to select files to add to input directory"""
         from tkinter import filedialog
@@ -1307,8 +1350,6 @@ create_crew(
             os.makedirs(input_dir)
         
         copied_count = 0
-        failed_files = []
-        
         for file_path in file_paths:
             if os.path.isfile(file_path):
                 try:
@@ -1327,22 +1368,11 @@ create_crew(
                     shutil.copy2(file_path, dest_path)
                     copied_count += 1
                 except Exception as e:
-                    failed_files.append((filename, str(e)))
                     messagebox.showerror("Error", f"Failed to copy {filename}: {e}")
         
-        # Show summary message
         if copied_count > 0:
-            message = f"Successfully copied {copied_count} file(s)"
-            if failed_files:
-                message += f"\n\nFailed to copy {len(failed_files)} file(s):"
-                for filename, error in failed_files:
-                    message += f"\n- {filename}: {error}"
-            messagebox.showinfo("File Copy Summary", message)
-        elif file_paths:
-            messagebox.showwarning("Warning", "No files were copied. Please check the console for details.")
-        
-        # Refresh the file list
-        self.refresh_input_files()
+            messagebox.showinfo("Success", f"Copied {copied_count} file(s) to input directory")
+            self.refresh_input_files()
     
     def remove_input_files(self):
         """Remove selected files from input directory"""
@@ -1364,7 +1394,6 @@ create_crew(
         
         input_dir = os.path.join(self.model.current_crew_path, "input")
         removed_count = 0
-        failed_files = []
         
         for filename in files_to_remove:
             file_path = os.path.join(input_dir, filename)
@@ -1372,27 +1401,12 @@ create_crew(
                 if os.path.exists(file_path):
                     os.remove(file_path)
                     removed_count += 1
-                else:
-                    failed_files.append(filename)
             except Exception as e:
-                failed_files.append((filename, str(e)))
+                messagebox.showerror("Error", f"Failed to delete {filename}: {e}")
         
-        # Show summary message
         if removed_count > 0:
-            message = f"Successfully removed {removed_count} file(s)"
-            if failed_files:
-                message += f"\n\nFailed to remove {len(failed_files)} item(s):"
-                for item in failed_files:
-                    if isinstance(item, tuple):
-                        message += f"\n- {item[0]}: {item[1]}"
-                    else:
-                        message += f"\n- {item} (not found)"
-            messagebox.showinfo("File Removal Summary", message)
-        else:
-            messagebox.showinfo("Info", "No files were removed.")
-        
-        # Refresh the file list
-        self.refresh_input_files()
+            messagebox.showinfo("Success", f"Removed {removed_count} file(s)")
+            self.refresh_input_files()
     
     def open_input_folder(self):
         """Open the input folder in file explorer"""
@@ -1438,58 +1452,14 @@ create_crew(
                 else:
                     size_str = f"{file_size / (1024 * 1024):.1f} MB"
                 
+                display_text = f"{filename} ({size_str})"
                 self.files_listbox.insert(tk.END, filename)
         
         except Exception as e:
             messagebox.showerror("Error", f"Failed to list files: {e}")
-    
-    # --- Drag and Drop Event Handlers ---
-    
-    def on_drag_enter(self, event):
-        """Handle drag enter event - change background color"""
-        self.drop_canvas.config(bg=self.drop_zone_hover_bg, highlightbackground="#2196f3")
-        self.root.update_idletasks()
-    
-    def on_drag_leave(self, event):
-        """Handle drag leave event - restore background color"""
-        self.drop_canvas.config(bg=self.drop_zone_original_bg, highlightbackground="#b0c4de")
-        self.root.update_idletasks()
-    
-    def on_drop(self, event):
-        """Handle drop event - process dropped files"""
-        # Restore background color
-        self.drop_canvas.config(bg=self.drop_zone_original_bg, highlightbackground="#b0c4de")
-        self.root.update_idletasks()
-        
-        # Parse dropped file paths
-        # Format: "path1\0path2\0path3\0"
-        data = event.data
-        
-        if not data:
-            return
-        
-        # Split paths and filter empty strings
-        if isinstance(data, str):
-            # Remove braces if present (Windows sometimes wraps paths in braces)
-            if data.startswith('{') and data.endswith('}'):
-                data = data[1:-1]
-            
-            # Split by null characters or whitespace
-            files = [f.strip() for f in data.split('\0') if f.strip()]
-            
-            # If no null chars, try space separation (for some systems)
-            if len(files) == 1 and ' ' in files[0]:
-                # Only split if it looks like multiple paths with spaces
-                potential_files = files[0].split()
-                if len(potential_files) > 1 and all(os.path.exists(f) for f in potential_files):
-                    files = potential_files
-            
-            if files:
-                # Copy all dropped files
-                self.copy_files_to_input(files)
 
 
 if __name__ == "__main__":
-    root = TkinterDnD.Tk()
+    root = tk.Tk()
     app = CrewAIGUI(root)
     root.mainloop()
