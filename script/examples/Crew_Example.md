@@ -6,7 +6,7 @@
 - **Role**: [Role Name]
 - **Goal**: [Specific Goal]
 - **Backstory**: [Detailed Backstory]
-- **Model**: [Model Name, e.g., ministral-3:8b]
+- **Model**: [Model Name, e.g., llama3]
 
 ### [Agent Name 2]
 - **Role**: [Role Name]

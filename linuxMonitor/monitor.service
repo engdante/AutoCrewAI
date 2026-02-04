@@ -1,0 +1,16 @@
+[Unit]
+Description=System Monitor API
+After=network.target
+
+[Service]
+Type=simple
+User=dante
+Group=dante
+WorkingDirectory=/home/dante/pcmonitor
+Environment="PATH=/opt/rocm/bin:/home/dante/pcmonitor/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/dante/pcmonitor/.venv/bin/gunicorn -w 4 -b 0.0.0.0:5000 --timeout 120 --access-logfile /home/dante/pcmonitor/access.log --error-logfile /home/dante/pcmonitor/error.log monitor:app
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

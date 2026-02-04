@@ -145,16 +145,19 @@ def create_crew(
         with open(example_task_path, "r", encoding="utf-8") as f:
             task_example = f.read()
     
-    # Load tools registry if Tool Agent is enabled
+    # Load tools registry if Tool Agent is enabled (or Web Search)
+    architect_tools = []
     if enable_tool_agent:
         try:
             from tools_registry import get_tool_agent_tools
             available_tools = get_tool_agent_tools()
+            architect_tools = available_tools # Give tools to Architect too
             tool_names = [tool.name for tool in available_tools]
-            print(f"    Available tools for Tool Agent: {', '.join(tool_names)}")
+            print(f"    Available tools for Tool Agent & Architect: {', '.join(tool_names)}")
         except Exception as e:
             print(f"    Warning: Could not load tools registry: {e}")
             available_tools = []
+
 
     # Build architecture instructions
     architecture_instructions = build_architecture_instructions(
@@ -167,10 +170,12 @@ def create_crew(
     # Define Meta-Agents
     architect = Agent(
         role="CrewAI Architect",
-        goal=f"Design the most effective CrewAI team structure using {architecture} architecture.",
+        goal=f"Design the most effective CrewAI team structure using {architecture} architecture. You can use web search tools to research the topic if needed to make better decisions.",
         backstory=f"You are a senior AI System Architect. You specialize in {architecture} team designs. "
-                  f"You work with a strict custom markdown format, NOT Python code.",
+                  f"You work with a strict custom markdown format, NOT Python code. "
+                  f"If you need to understand the domain better, use your tools to research before designing.",
         llm=current_llm,
+        tools=architect_tools,
         verbose=True,
         allow_delegation=False
     )
@@ -502,10 +507,16 @@ Examples:
     )
     
     parser.add_argument(
-        "--tool-agent",
-        action="store_true",
-        help="Enable dedicated Tool Agent for all external operations"
+      "--web-search",
+      action="store_true",
+      help="Enable web search capabilities for agents"
     )
+
+    # parser.add_argument(
+    #     "--tool-agent",
+    #     action="store_true",
+    #     help="Enable dedicated Tool Agent for all external operations"
+    # )
 
     parser.add_argument(
         "--output-dir",
@@ -520,7 +531,7 @@ Examples:
         model_name=args.model,
         architecture=args.architecture,
         enable_supervisor=args.supervisor,
-        enable_tool_agent=args.tool_agent,
+        enable_tool_agent=args.web_search,
         supervisor_model=args.supervisor_model,
         output_dir=args.output_dir
     )

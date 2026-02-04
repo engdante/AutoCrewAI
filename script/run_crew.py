@@ -206,7 +206,7 @@ def parse_crew_md(file_path, task_input_content):
 
     return crew_title, list(agents.values()), tasks_data, crew_architecture, crew_supervisor_agent_name
 
-def run_crew(crew_file, task_file, output_dir=None):
+def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False):
     if output_dir:
         global OUTPUT_DIR
         OUTPUT_DIR = output_dir
@@ -220,6 +220,27 @@ def run_crew(crew_file, task_file, output_dir=None):
             task_input_content = f.read()
     
     title, agent_list, tasks_data, architecture, supervisor_agent_name = parse_crew_md(crew_file, task_input_content)
+    
+    # Inject Web Search Tools if enabled
+    if enable_web_search:
+        print(f"--- [INFO] Web Search Enabled: Injecting tools into all agents ---")
+        try:
+            extra_tools = get_tool_agent_tools()
+            tool_names = [t.name for t in extra_tools]
+            print(f"    Tools injected: {', '.join(tool_names)}")
+            
+            for agent in agent_list:
+                # Add tools if not already present
+                existing_names = [t.name for t in agent.tools] if agent.tools else []
+                new_tools = [t for t in extra_tools if t.name not in existing_names]
+                
+                if new_tools:
+                    if agent.tools is None:
+                        agent.tools = []
+                    agent.tools.extend(new_tools)
+                    print(f"    -> Added {len(new_tools)} tools to agent '{agent.role}'")
+        except Exception as e:
+            print(f"    [WARNING] Failed to inject tools: {e}")
     
     # Convert agent_list to a dictionary for easier lookup by name
     agents_dict = {agent.role: agent for agent in agent_list} # Assuming role is unique and used as identifier
@@ -343,10 +364,12 @@ if __name__ == "__main__":
     parser.add_argument("--task-file", help="Path to Task.md", default=None)
     parser.add_argument("--output-dir", help="Directory for output files", default=None)
     
+    parser.add_argument("--web-search", action="store_true", help="Enable web search for all agents")
+    
     args = parser.parse_args()
 
     # Look for Crew.md and Task.md in project root if not specified
     crew_file = args.crew_file if args.crew_file else os.path.join(PROJECT_ROOT, 'Crew.md')
     task_file = args.task_file if args.task_file else os.path.join(PROJECT_ROOT, 'Task.md')
     
-    run_crew(crew_file, task_file, args.output_dir)
+    run_crew(crew_file, task_file, args.output_dir, args.web_search)

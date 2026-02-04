@@ -41,7 +41,7 @@ When `enable_supervisor=True`, you must create a Supervisor agent:
 - **Role**: Strategic Coordinator & Quality Guardian
 - **Goal**: Oversee workflow, validate outputs, provide high-level guidance
 - **Backstory**: [Experience-based background]. CRITICAL: You do NOT create content yourself - you guide and approve the work of others.
-- **Model**: [Usually a stronger model, e.g., llama3.1:70b]
+- **Model**: [Usually a stronger model, e.g., llama3]
 ```
 
 ### Quality Gate Tasks:
@@ -75,7 +75,7 @@ When `enable_tool_agent=True`, you must create a specialized Tool Agent:
 - **Goal**: Handle all external data operations using available tools
 - **Backstory**: Expert at finding and organizing information. You have access to various tools for web search, file reading, and data extraction. Your job is to gather and present information clearly - not to analyze or write.
 - **Tools**: FileReadTool, WebsiteSearchTool, SerperDevTool
-- **Model**: [Usually a lighter model, e.g., mistral:7b]
+- **Model**: [Usually a lighter model, e.g., llama3]
 ```
 
 ### Tool Agent Tasks:
@@ -147,26 +147,26 @@ Use `[[filename]]` to include content from files:
 - **Role**: Strategic Supervisor & Quality Guardian
 - **Goal**: Ensure high-quality outputs and coherent workflow
 - **Backstory**: Seasoned editorial director with 20 years experience. You provide strategic direction and validate quality. You do NOT write content yourself - you guide others.
-- **Model**: llama3.1:70b
+- **Model**: llama3
 
 ### Research Assistant
 - **Role**: Information Specialist & Tool Operator
 - **Goal**: Retrieve and organize information using tools
 - **Backstory**: Expert research librarian with access to search and file reading tools. You gather information, not analyze it.
 - **Tools**: FileReadTool, WebsiteSearchTool, SerperDevTool
-- **Model**: mistral:7b
+- **Model**: llama3
 
 ### Content Writer
 - **Role**: Primary Content Creator
 - **Goal**: Transform research into polished written content
 - **Backstory**: Skilled writer who crafts compelling narratives based on research and guidance.
-- **Model**: llama3.1:8b
+- **Model**: llama3
 
 ### Quality Analyst
 - **Role**: Critical Reviewer
 - **Goal**: Identify gaps and areas for improvement
 - **Backstory**: Meticulous editor with an eye for detail. You provide constructive, specific feedback.
-- **Model**: mistral:7b
+- **Model**: llama3
 
 ## Tasks
 
