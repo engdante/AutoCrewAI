@@ -16,6 +16,10 @@ class CrewModel:
         # Ensure crews dir exists
         if not os.path.exists(self.crews_dir):
             os.makedirs(self.crews_dir)
+            
+        # Ensure default crew exists
+        if not os.path.exists(self.current_crew_path):
+            self.create_new_crew("default", "Default crew for general tasks.")
 
     def get_crews(self):
         crews = []

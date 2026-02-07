@@ -2,3 +2,5 @@ venv/
 .aider*
 .env
 __pycache__
+script/__pycache__
+crews/

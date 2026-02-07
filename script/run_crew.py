@@ -11,6 +11,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module='pydantic')
 # Suppress CrewAI Tracing/Telemetry messages
 os.environ["CREWAI_TRACING_ENABLED"] = "false"
 os.environ["OTEL_SDK_DISABLED"] = "true"
+os.environ["LITELLM_LOGGING"] = "false"
 
 # Fix Windows console encoding for emojis
 if sys.platform == "win32":
@@ -50,17 +51,12 @@ def setup_logging(output_dir):
         filename=log_file,
         level=logging.DEBUG,
         format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
-        encoding='utf-8'
+        encoding='utf-8',
+        force=True
     )
     logging.info("--- Execution Started ---")
     print(f"--- [DEBUG] Logging details to: {log_file} ---")
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
-    # Set environment variable so tools (like FileWriteTool) know where to write
-    os.environ["CREW_OUTPUT_DIR"] = OUTPUT_DIR
-    
-    setup_logging(OUTPUT_DIR)
 env_path = os.path.join(PROJECT_ROOT, ".env")
 load_dotenv(env_path)
 
@@ -75,7 +71,9 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL") or f"http://{OLLAMA_SERVER}:{OLLA
 # Initialize LLM with Ollama configuration
 ollama_llm = LLM(
     model=f"ollama/{OLLAMA_MODEL}",
-    base_url=OLLAMA_BASE_URL
+    base_url=OLLAMA_BASE_URL,
+    timeout=300,        # Increase timeout to 5 minutes
+    max_retries=3       # Retry 3 times on connection errors
 )
 
 def parse_crew_md(file_path, task_input_content):
@@ -123,7 +121,9 @@ def parse_crew_md(file_path, task_input_content):
                 model_name = custom_model.group(1).strip()
                 agent_llm = LLM(
                     model=f"ollama/{model_name}",
-                    base_url=OLLAMA_BASE_URL
+                    base_url=OLLAMA_BASE_URL,
+                    timeout=300,
+                    max_retries=3
                 )
                 print(f"Agent {name} using custom model: {model_name}")
             else:
@@ -191,20 +191,38 @@ def parse_crew_md(file_path, task_input_content):
 
                 # Injection 2: Dynamic [[filename]] support
                 file_placeholders = re.findall(r'\[\[(.*?)\]\]', desc_text)
+                crew_dir = os.path.dirname(os.path.abspath(file_path))
+                crew_input_dir = os.path.join(crew_dir, "input")
+                
                 for f_name in file_placeholders:
                     f_name = f_name.strip()
-                    # Look for file in input directory first, then project root
+                    # Look in 3 places: 
+                    # 1. Crew's input/ folder
+                    # 2. Global input/ folder
+                    # 3. Project root
+                    crew_specific_path = os.path.join(crew_input_dir, f_name)
+                    # If f_name starts with 'input/', also try without 'input/' prefix for crew folder
+                    if f_name.startswith("input/") or f_name.startswith("input\\"):
+                        f_name_short = f_name[6:]
+                        crew_specific_path_alt = os.path.join(crew_input_dir, f_name_short)
+                    else:
+                        crew_specific_path_alt = None
+
                     input_path = os.path.join(INPUT_DIR, f_name)
                     root_path = os.path.join(PROJECT_ROOT, f_name)
                     
-                    file_path = None
-                    if os.path.exists(input_path):
-                        file_path = input_path
+                    file_path_resolved = None
+                    if os.path.exists(crew_specific_path):
+                        file_path_resolved = crew_specific_path
+                    elif crew_specific_path_alt and os.path.exists(crew_specific_path_alt):
+                        file_path_resolved = crew_specific_path_alt
+                    elif os.path.exists(input_path):
+                        file_path_resolved = input_path
                     elif os.path.exists(root_path):
-                        file_path = root_path
+                        file_path_resolved = root_path
                     
-                    if file_path:
-                        with open(file_path, 'r', encoding='utf-8') as f:
+                    if file_path_resolved:
+                        with open(file_path_resolved, 'r', encoding='utf-8') as f:
                             f_content = f.read()
                         
                         # Apply sampling if the file is large
@@ -212,16 +230,18 @@ def parse_crew_md(file_path, task_input_content):
                             print(f"Sampling large file: {f_name}")
                             chunk = 15000
                             f_content = (
-                                f"[NOTE: Content of {f_name} has been sampled due to size]\n\n"
+                                f"[WARNING: Content of {f_name} has been sampled due to its large size ({len(f_content)} chars). "
+                                f"Significant portions of the document have been omitted. "
+                                f"If the analysis requires specific sections not shown below, please request them individually.]\n\n"
                                 f"--- START OF FILE ---\n{f_content[:chunk]}\n\n"
                                 f"--- MIDDLE OF FILE ---\n{f_content[len(f_content)//2 - chunk//2 : len(f_content)//2 + chunk//2]}\n\n"
                                 f"--- END OF FILE ---\n{f_content[-chunk:]}"
                             )
                         
                         desc_text = desc_text.replace(f"[[{f_name}]]", f_content)
-                        print(f"Injected content from {file_path}")
+                        print(f"Injected content from {file_path_resolved}")
                     else:
-                        print(f"Warning: File [[{f_name}]] not found in input/ or project root.")
+                        print(f"Warning: File [[{f_name}]] not found in crew input/, global input/ or project root.")
 
                 tasks_data.append({
                     "name": task_name,
@@ -233,7 +253,7 @@ def parse_crew_md(file_path, task_input_content):
                     )
                 })
 
-    return crew_title, list(agents.values()), tasks_data, crew_architecture, crew_supervisor_agent_name
+    return crew_title, agents, tasks_data, crew_architecture, crew_supervisor_agent_name
 
 def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False):
     global OUTPUT_DIR
@@ -247,6 +267,7 @@ def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False):
         OUTPUT_DIR = os.path.join(crew_dir, "output")
         
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.environ["CREW_OUTPUT_DIR"] = OUTPUT_DIR
     setup_logging(OUTPUT_DIR)
 
     try:
@@ -260,7 +281,8 @@ def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False):
             with open(task_file, 'r', encoding='utf-8') as f:
                 task_input_content = f.read()
         
-        title, agent_list, tasks_data, architecture, supervisor_agent_name = parse_crew_md(crew_file, task_input_content)
+        title, agents_dict, tasks_data, architecture, supervisor_agent_name = parse_crew_md(crew_file, task_input_content)
+        agent_list = list(agents_dict.values())
         
         # Inject Web Search Tools if enabled
         if enable_web_search:
@@ -285,21 +307,24 @@ def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False):
                 logging.error(f"Failed to inject tools: {e}")
                 print(f"    [WARNING] Failed to inject tools: {e}")
         
-        # Convert agent_list to a dictionary for easier lookup by name
-        agents_dict = {agent.role: agent for agent in agent_list} # Assuming role is unique and used as identifier
-
         crew_process = Process.sequential
         manager_agent = None
 
         if architecture == "hierarchical":
             crew_process = Process.hierarchical
             if supervisor_agent_name:
-                # Try to find supervisor by the exact name from Crew.md
+                # 1. Try to find supervisor by the exact '### Name' from Crew.md (using agents_dict)
                 manager_agent = agents_dict.get(supervisor_agent_name)
+                
+                # 2. Try to find by role name if direct match fails
                 if not manager_agent:
-                    # Fallback: try to find an agent whose name contains "supervisor" or "manager"
-                    # This is a bit risky if multiple agents contain these keywords, 
-                    # but provides robustness if the exact name isn't matched.
+                    for agent in agent_list:
+                        if agent.role == supervisor_agent_name:
+                            manager_agent = agent
+                            break
+
+                # 3. Fallback: try to find an agent whose name contains "supervisor" or "manager"
+                if not manager_agent:
                     for agent_name, agent_obj in agents_dict.items():
                         if "supervisor" in agent_name.lower() or "manager" in agent_name.lower():
                             manager_agent = agent_obj
@@ -405,7 +430,7 @@ def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False):
     except Exception as e:
         logging.critical("CRITICAL ERROR during execution:", exc_info=True)
         print(f"\n❌ FATAL ERROR: {str(e)}")
-        print(f"See {os.path.join(OUTPUT_DIR, 'debug.log')} for full technical details.")
+        print(f"See {os.path.join(OUTPUT_DIR, 'run_debug.log')} for full technical details.")
         raise
 
 if __name__ == "__main__":
@@ -423,8 +448,9 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
-    # Look for Crew.md and Task.md in project root if not specified
-    crew_file = args.crew_file if args.crew_file else os.path.join(PROJECT_ROOT, 'Crew.md')
-    task_file = args.task_file if args.task_file else os.path.join(PROJECT_ROOT, 'Task.md')
+    # Look for Crew.md and Task.md in crews/default if not specified
+    default_crew_path = os.path.join(PROJECT_ROOT, 'crews', 'default')
+    crew_file = args.crew_file if args.crew_file else os.path.join(default_crew_path, 'Crew.md')
+    task_file = args.task_file if args.task_file else os.path.join(default_crew_path, 'Task.md')
     
     run_crew(crew_file, task_file, args.output_dir, args.web_search)

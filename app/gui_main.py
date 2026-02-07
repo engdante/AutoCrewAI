@@ -219,8 +219,63 @@ class CrewAIGUI:
         # Status Bar for Monitoring
         self.status_bar = ttk.Frame(self.root, relief="sunken", padding=(10, 2))
         self.status_bar.pack(side="bottom", fill="x")
+        
         self.monitor_label = ttk.Label(self.status_bar, text="Monitor: Initializing...", font=("Segoe UI", 9))
         self.monitor_label.pack(side="left")
+
+        # Reset GPU Button
+        self.reset_gpu_btn = ttk.Button(self.status_bar, text="🧹 Reset GPU (Clear VRAM)", 
+                                        style="Small.TButton", command=self.reset_gpu_memory)
+        self.reset_gpu_btn.pack(side="right", padx=5)
+        
+        # Add a small style for the status bar button
+        self.style.configure("Small.TButton", font=("Segoe UI", 8))
+
+    def reset_gpu_memory(self):
+        """Attempts to clear Ollama VRAM by sending keep_alive: 0 for loaded models."""
+        def reset_thread():
+            server = os.getenv("OLLAMA_SERVER", "localhost").strip("'\"")
+            port = os.getenv("OLLAMA_PORT", "11434").strip("'\"")
+            
+            try:
+                # 1. Get list of tags (models)
+                tags_url = f"http://{server}:{port}/api/tags"
+                response = requests.get(tags_url, timeout=5)
+                if response.status_code != 200:
+                    self.root.after(0, lambda: messagebox.showerror("Error", f"Could not connect to Ollama at {tags_url}"))
+                    return
+
+                models = response.json().get('models', [])
+                if not models:
+                    self.root.after(0, lambda: messagebox.showinfo("Info", "No Ollama models found."))
+                    return
+
+                # 2. Try to unload the first model (usually sufficient to trigger a cleanup)
+                # Or better, try to unload the currently selected model if available
+                model_to_unload = models[0]['name']
+                
+                # Check if any agent has a model selected
+                for a in self.agent_widgets:
+                    if a['model'].get():
+                        model_to_unload = a['model'].get()
+                        break
+
+                unload_url = f"http://{server}:{port}/api/generate"
+                payload = {
+                    "model": model_to_unload,
+                    "keep_alive": 0
+                }
+                
+                unload_res = requests.post(unload_url, json=payload, timeout=5)
+                if unload_res.status_code == 200:
+                    self.root.after(0, lambda: messagebox.showinfo("Success", f"Sent unload command for '{model_to_unload}'. VRAM should be clearing..."))
+                else:
+                    self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to unload model: {unload_res.status_code}"))
+
+            except Exception as e:
+                self.root.after(0, lambda: messagebox.showerror("Error", f"Reset failed: {str(e)}"))
+
+        threading.Thread(target=reset_thread, daemon=True).start()
 
     # --- Monitoring Logic ---
     def update_monitor_stats(self):

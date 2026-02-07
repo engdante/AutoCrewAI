@@ -54,7 +54,7 @@ class FileIntelligenceTool(BaseTool):
         current_output_dir = os.environ.get("CREW_OUTPUT_DIR", "output")
         output_name = os.path.basename(current_output_dir)
         
-        exclude_dirs = ["conda", "__pycache__", ".git", ".venv", output_name, "node_modules", "output"]
+        exclude_dirs = ["conda", "__pycache__", ".git", ".venv", "venv", output_name, "node_modules", "output"]
         
         for root, dirs, files in os.walk(os.getcwd()):
             # Filter directories in-place to prevent walking into excluded ones
@@ -116,12 +116,13 @@ def get_tool_agent_tools():
     else:
         print("Warning: BRAVE_API_KEY not found or invalid in .env file. BraveSearchTool will not be available.")
     
-    # File operations tools
+    # File operations tools - restricted to current directory for safety/speed
+    cwd = os.getcwd()
     tools.append(FileReadTool())
     tools.append(FileWriteTool())
     
-    # Directory navigation tool
-    tools.append(DirectoryReadTool())
+    # Directory navigation tool - restricted to current directory
+    tools.append(DirectoryReadTool(directory=cwd))
     
     # Advanced file intelligence tool
     tools.append(FileIntelligenceTool())
