@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import warnings
@@ -38,6 +39,29 @@ ollama_llm = LLM(
     base_url=OLLAMA_BASE_URL
 )
 
+def setup_logging(output_dir):
+    """Sets up logging to a create_debug.log file."""
+    if not output_dir:
+        output_dir = os.getcwd()
+    
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = os.path.join(output_dir, "create_debug.log")
+    
+    # Reset existing handlers
+    root = logging.getLogger()
+    if root.handlers:
+        for handler in root.handlers:
+            root.removeHandler(handler)
+            
+    logging.basicConfig(
+        filename=log_file,
+        level=logging.DEBUG,
+        format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+        encoding='utf-8'
+    )
+    logging.info("--- Crew Generation Started ---")
+    print(f"--- [DEBUG] Logging details to: {log_file} ---")
+
 def clean_markdown(content):
     """Removes markdown code block formatting if present."""
     if content.startswith("```"):
@@ -55,358 +79,328 @@ def create_crew(
     task_context=None,
     architecture="sequential",  # "sequential" or "hierarchical"
     enable_supervisor=False,    # Enable Supervisor agent with veto power
-    enable_tool_agent=False,    # Enable dedicated Tool Agent
+    enable_web_search=False,    # Enable web search for agents
     supervisor_model=None,      # Optional: different model for Supervisor (e.g., stronger model)
     output_dir=None             # Optional: directory to save output files
 ):
     """
     Enhanced Crew Creation with Architecture Options
-    
-    Parameters:
-    -----------
-    task_description : str
-        The main task to create crew for
-    model_name : str, optional
-        Default model for all agents
-    crew_context : str, optional
-        Existing Crew.md content for refinement
-    task_context : str, optional
-        Existing Task.md content for refinement
-    architecture : str
-        "sequential" - Linear workflow
-        "hierarchical" - Supervisor coordinates workflow
-    enable_supervisor : bool
-        Add Supervisor agent with quality gates and veto power
-    enable_tool_agent : bool
-        Add dedicated Tool Agent for all external operations
-    supervisor_model : str, optional
-        Specific model for Supervisor (recommended: stronger model like llama3.1:70b)
-    
-    Examples:
-    ---------
-    # Simple sequential crew
-    create_crew("Write a story", architecture="sequential")
-    
-    # Hierarchical with Supervisor and Tool Agent
-    create_crew("Research and write", 
-                architecture="hierarchical",
-                enable_supervisor=True,
-                enable_tool_agent=True,
-                supervisor_model="llama3.1:70b")
     """
-    
-    if model_name is None:
-        model_name = OLLAMA_MODEL
-    
-    if supervisor_model is None:
-        supervisor_model = model_name  # Use same as default if not specified
-    
-    mode = "Refining" if (crew_context or task_context) else "Creating"
-    arch_info = f"{architecture.upper()}"
-    if enable_supervisor:
-        arch_info += " + SUPERVISOR"
-    if enable_tool_agent:
-        arch_info += " + TOOL_AGENT"
-    
-    print(f"--- {mode} Crew [{arch_info}] for: '{task_description}' ---")
-    print(f"    Default Model: {model_name}")
-    if enable_supervisor:
-        print(f"    Supervisor Model: {supervisor_model}")
+    setup_logging(output_dir)
 
-    # Local LLM with specified model
-    current_llm = LLM(
-        model=f"ollama/{model_name}",
-        base_url=OLLAMA_BASE_URL
-    )
-    
-    # Supervisor gets a potentially stronger model
-    supervisor_llm = LLM(
-        model=f"ollama/{supervisor_model}",
-        base_url=OLLAMA_BASE_URL
-    )
+    try:
+        logging.info(f"Task: {task_description}")
+        logging.info(f"Architecture: {architecture}, Supervisor: {enable_supervisor}, Web Search: {enable_web_search}")
 
-    # Read instructions and examples from script directory
-    crew_instructions = ""
-    crew_example = ""
-    task_example = ""
+        if model_name is None:
+            model_name = OLLAMA_MODEL
+        
+        if supervisor_model is None:
+            supervisor_model = model_name  # Use same as default if not specified
+        
+        mode = "Refining" if (crew_context or task_context) else "Creating"
+        arch_info = f"{architecture.upper()}"
+        if enable_supervisor:
+            arch_info += " + SUPERVISOR"
+        if enable_web_search:
+            arch_info += " + WEB_SEARCH"
+        
+        print(f"--- {mode} Crew [{arch_info}] for: '{task_description}' ---")
+        print(f"    Default Model: {model_name}")
+        if enable_supervisor:
+            print(f"    Supervisor Model: {supervisor_model}")
 
-    instruction_path = os.path.join(SCRIPT_DIR, "examples", "Crew_Instruction.md")
-    if os.path.exists(instruction_path):
-        with open(instruction_path, "r", encoding="utf-8") as f:
-            crew_instructions = f.read()
-    
-    example_crew_path = os.path.join(SCRIPT_DIR, "examples", "Crew_Example.md")
-    if os.path.exists(example_crew_path):
-        with open(example_crew_path, "r", encoding="utf-8") as f:
-            crew_example = f.read()
+        # Local LLM with specified model
+        current_llm = LLM(
+            model=f"ollama/{model_name}",
+            base_url=OLLAMA_BASE_URL
+        )
+        
+        # Supervisor gets a potentially stronger model
+        supervisor_llm = LLM(
+            model=f"ollama/{supervisor_model}",
+            base_url=OLLAMA_BASE_URL
+        )
 
-    example_task_path = os.path.join(SCRIPT_DIR, "examples", "Task_Example.md")
-    if os.path.exists(example_task_path):
-        with open(example_task_path, "r", encoding="utf-8") as f:
-            task_example = f.read()
-    
-    # Load tools registry if Tool Agent is enabled (or Web Search)
-    architect_tools = []
-    if enable_tool_agent:
-        try:
-            from tools_registry import get_tool_agent_tools
-            available_tools = get_tool_agent_tools()
-            architect_tools = available_tools # Give tools to Architect too
-            tool_names = [tool.name for tool in available_tools]
-            print(f"    Available tools for Tool Agent & Architect: {', '.join(tool_names)}")
-        except Exception as e:
-            print(f"    Warning: Could not load tools registry: {e}")
+        # Read instructions and examples from script directory
+        crew_instructions = ""
+        crew_example = ""
+        task_example = ""
+
+        instruction_path = os.path.join(SCRIPT_DIR, "examples", "Crew_Instruction.md")
+        if os.path.exists(instruction_path):
+            with open(instruction_path, "r", encoding="utf-8") as f:
+                crew_instructions = f.read()
+        
+        example_crew_path = os.path.join(SCRIPT_DIR, "examples", "Crew_Example.md")
+        if os.path.exists(example_crew_path):
+            with open(example_crew_path, "r", encoding="utf-8") as f:
+                crew_example = f.read()
+
+        example_task_path = os.path.join(SCRIPT_DIR, "examples", "Task_Example.md")
+        if os.path.exists(example_task_path):
+            with open(example_task_path, "r", encoding="utf-8") as f:
+                task_example = f.read()
+        
+        # Load tools registry if Web Search is enabled
+        architect_tools = []
+        if enable_web_search:
+            try:
+                from tools_registry import get_tool_agent_tools
+                available_tools = get_tool_agent_tools()
+                architect_tools = available_tools # Give tools to Architect too
+                tool_names = [tool.name for tool in available_tools]
+                print(f"    Available tools for Agents & Architect: {', '.join(tool_names)}")
+                logging.info(f"Loaded tools: {tool_names}")
+            except Exception as e:
+                print(f"    Warning: Could not load tools registry: {e}")
+                logging.warning(f"Could not load tools: {e}")
+                available_tools = []
+        else:
             available_tools = []
 
 
-    # Build architecture instructions
-    architecture_instructions = build_architecture_instructions(
-        architecture,
-        enable_supervisor,
-        enable_tool_agent,
-        supervisor_model
-    )
+        # Build architecture instructions
+        architecture_instructions = build_architecture_instructions(
+            architecture,
+            enable_supervisor,
+            enable_web_search,
+            supervisor_model
+        )
 
-    # Define Meta-Agents
-    architect = Agent(
-        role="CrewAI Architect",
-        goal=f"Design the most effective CrewAI team structure using {architecture} architecture. You can use web search tools to research the topic if needed to make better decisions.",
-        backstory=f"You are a senior AI System Architect. You specialize in {architecture} team designs. "
-                  f"You work with a strict custom markdown format, NOT Python code. "
-                  f"If you need to understand the domain better, use your tools to research before designing.",
-        llm=current_llm,
-        tools=architect_tools,
-        verbose=True,
-        allow_delegation=False
-    )
+        # Define Meta-Agents
+        architect = Agent(
+            role="CrewAI Architect",
+            goal=f"Design the most effective CrewAI team structure using {architecture} architecture. You can use web search tools to research the topic if needed to make better decisions.",
+            backstory=f"You are a senior AI System Architect. You specialize in {architecture} team designs. "
+                    f"You work with a strict custom markdown format, NOT Python code. "
+                    f"If you need to understand the domain better, use your tools to research before designing.",
+            llm=current_llm,
+            tools=architect_tools,
+            verbose=True,
+            allow_delegation=False
+        )
 
-    writer = Agent(
-        role="Configuration Writer",
-        goal="Generate configuration files that EXACTLY match the provided example formats.",
-        backstory="You are a technical writer who creates configuration files. You never explain yourself. You just output the file content.",
-        llm=current_llm,
-        verbose=True,
-        allow_delegation=False
-    )
+        writer = Agent(
+            role="Configuration Writer",
+            goal="Generate configuration files that EXACTLY match the provided example formats.",
+            backstory="You are a technical writer who creates configuration files. You never explain yourself. You just output the file content.",
+            llm=current_llm,
+            verbose=True,
+            allow_delegation=False
+        )
 
-    reviewer = Agent(
-        role="Quality Assurance Specialist",
-        goal="Validate correct formatting. Ensure NO PYTHON CODE is present.",
-        backstory="You are a strict validator. You ensure the output matches the Example files structure exactly.",
-        llm=current_llm,
-        verbose=True,
-        allow_delegation=False
-    )
+        reviewer = Agent(
+            role="Quality Assurance Specialist",
+            goal="Validate correct formatting. Ensure NO PYTHON CODE is present.",
+            backstory="You are a strict validator. You ensure the output matches the Example files structure exactly.",
+            llm=current_llm,
+            verbose=True,
+            allow_delegation=False
+        )
 
-    # Task 1: Design the Crew with Architecture Awareness
-    design_description = f"Analyze the request: '{task_description}'. \n"
-    design_description += f"\nARCHITECTURE REQUIREMENTS:\n{architecture_instructions}\n"
-    
-    if enable_supervisor:
-        design_description += "\nSUPERVISOR REQUIREMENTS:\n"
-        design_description += "- Create a Supervisor agent that reviews outputs and provides quality gates\n"
-        design_description += "- Supervisor can VETO outputs with specific feedback for correction\n"
-        design_description += "- Add quality checkpoint tasks where Supervisor outputs 'APPROVED' or 'REVISE: [reason]'\n"
-        design_description += "- Supervisor does NOT create content, only evaluates and guides\n"
-        design_description += f"- Supervisor uses stronger model: {supervisor_model}\n"
-    
-    if enable_tool_agent:
-        design_description += "\nTOOL AGENT REQUIREMENTS:\n"
-        design_description += "- Create a Tool Agent (e.g., 'Research Assistant', 'Information Specialist')\n"
-        design_description += "- This agent handles ALL external operations: web search, file reading, data extraction\n"
-        design_description += "- Other agents request information from Tool Agent instead of accessing tools directly\n"
-        design_description += "- Tool Agent should have access to these confirmed tools:\n"
-        design_description += "  * FileReadTool (read files)\n"
-        design_description += "  * WebsiteSearchTool (search websites)\n"
-        design_description += "  * SerperDevTool (web search - requires API key)\n"
-        design_description += "- Specify tools in agent's Tools section like: **Tools**: FileReadTool, WebsiteSearchTool\n"
-    
-    if crew_context or task_context:
-        design_description += "\nThis is a REFINEMENT/UPDATE request based on existing configuration.\n"
+        # Task 1: Design the Crew with Architecture Awareness
+        design_description = f"Analyze the request: '{task_description}'. \n"
+        design_description += f"\nARCHITECTURE REQUIREMENTS:\n{architecture_instructions}\n"
+        
+        if enable_supervisor:
+            design_description += "\nSUPERVISOR REQUIREMENTS:\n"
+            design_description += "- Create a Supervisor agent that reviews outputs and provides quality gates\n"
+            design_description += "- Supervisor can VETO outputs with specific feedback for correction\n"
+            design_description += "- Add quality checkpoint tasks where Supervisor outputs 'APPROVED' or 'REVISE: [reason]'\n"
+            design_description += "- Supervisor does NOT create content, only evaluates and guides\n"
+            design_description += f"- Supervisor uses stronger model: {supervisor_model}\n"
+        
+        if enable_web_search:
+            design_description += "\nWEB SEARCH REQUIREMENTS:\n"
+            design_description += "- You have access to the 'brave_search' tool.\n"
+            design_description += "- Identify which agents need external information (e.g., Researchers, Analysts, Market Specialists).\n"
+            design_description += "- Assign the web search tool to these specific agents.\n"
+            design_description += "- Specify tools in agent's Tools section like: **Tools**: brave_search\n"
+            design_description += "- Do NOT assign tools to agents that don't need them (like Writers or Editors), unless they need to verify facts.\n"
+        
+        if crew_context or task_context:
+            design_description += "\nThis is a REFINEMENT/UPDATE request based on existing configuration.\n"
+            if crew_context:
+                design_description += f"\nCurrent Crew Configuration:\n```markdown\n{crew_context}\n```\n"
+            if task_context:
+                design_description += f"\nCurrent Task Content:\n```markdown\n{task_context}\n```\n"
+            design_description += f"\nBased on the user feedback above, MODIFY and IMPROVE the existing configuration while preserving its structure.\n"
+        else:
+            design_description += "Plan the Agents and Tasks needed.\n"
+        
+        design_description += f"Consider the structure used in this EXAMPLE of a good Crew:\n"
+        design_description += f"```markdown\n{crew_example}\n```\n"
+        
+        design_task = Task(
+            description=design_description,
+            expected_output="A detailed plan for the agents and tasks with clear workflow.",
+            agent=architect
+        )
+
+        # Task 2: Write Crew.md with Architecture Support
+        write_crew_description = f"Write the 'Crew.md' file.\n"
+        write_crew_description += "RULES:\n"
+        write_crew_description += "1. OUTPUT MUST BE MARKDOWN, NOT PYTHON.\n"
+        write_crew_description += f"2. Follow this EXACT format (Example):\n```markdown\n{crew_example}\n```\n"
+        write_crew_description += f"3. Use the syntax rules:\n{crew_instructions}\n"
+        write_crew_description += "4. Do not include ```markdown or ``` tags if possible, just the content.\n"
+        write_crew_description += "5. IMPORTANT: Do NOT use '###' for section headers (e.g. '### Phase 1'). '###' is ONLY for Agent Names and Task Names. Use '**Bold**' for dividers.\n"
+        
+        # New: Add architecture configuration to Crew.md
+        write_crew_description += "\n6. Include a '## Configuration' section at the very beginning of the Crew.md file, immediately after '# Crew Team:'.\n"
+        write_crew_description += f"   - It must specify 'Architecture: {architecture}'.\n"
+        if enable_supervisor:
+            write_crew_description += f"   - It must specify 'Supervisor Agent: [The Name of the Supervisor Agent you create, e.g., 'Project Manager']'.\n"
+            write_crew_description += "     - IMPORTANT: Identify the supervisor agent's name from the agent you create with the role of a supervisor/manager.\n"
+        write_crew_description += "   - Example:\n     ```markdown\n     ## Configuration\n     - Architecture: sequential\n     - Supervisor Agent: None\n     ```\n"
+
+        if enable_supervisor:
+            write_crew_description += "\n7. SUPERVISOR IMPLEMENTATION:\n"
+            write_crew_description += "   - Create a Supervisor agent (e.g., 'Editorial Director', 'Quality Guardian', 'Project Manager')\n"
+            write_crew_description += f"   - Add line: **Model**: {supervisor_model}\n"
+            write_crew_description += "   - Create checkpoint tasks like:\n"
+            write_crew_description += "     ### Quality Gate: [Stage Name]\n"
+            write_crew_description += "     - **Description**: Review [[previous_output.md]]. If quality is sufficient, output 'APPROVED'. If not, output 'REVISE: [specific actionable feedback]'.\n"
+            write_crew_description += "     - **Expected Output**: Quality gate decision with clear reasoning\n"
+            write_crew_description += "     - **Agent**: [Supervisor Name]\n"
+        
+        if enable_web_search:
+            write_crew_description += "\n8. WEB SEARCH IMPLEMENTATION:\n"
+            write_crew_description += "   - For agents that need to search the internet (identified in the design):\n"
+            write_crew_description += "   - Add line: **Tools**: brave_search\n"
+        
         if crew_context:
-            design_description += f"\nCurrent Crew Configuration:\n```markdown\n{crew_context}\n```\n"
+            write_crew_description += f"\nMODIFICATION MODE: Modify the existing Crew configuration below based on user feedback:\n"
+            write_crew_description += f"```markdown\n{crew_context}\n```\n"
+        
+        write_crew_task = Task(
+            description=write_crew_description,
+            expected_output="The content for Crew.md with all specified architecture features, including the new Configuration section.",
+            agent=writer
+        )
+
+        # Task 3: Review Crew.md with Architecture Validation
+        review_crew_description = f"Review 'Crew.md'.\n"
+        review_crew_description += f"1. It must start with '# Crew Team:'.\n"
+        review_crew_description += f"2. It must have '## Configuration' section immediately after '# Crew Team:'.\n"
+        review_crew_description += f"3. In '## Configuration': Verify 'Architecture: {architecture}' and 'Supervisor Agent: {'[Name]' if enable_supervisor else 'None'}'.\n"
+        review_crew_description += f"4. It must have '## Agents' and '## Tasks'.\n"
+        review_crew_description += f"5. It must NOT contain `from crewai import` or any Python code.\n"
+        review_crew_description += f"6. It must match the structure of:\n```markdown\n{crew_example}\n```\n"
+        review_crew_description += f"7. CHECK FOR FORBIDDEN HEADERS: If you see '### Phase 1' or similar, CHANGE it to '**Phase 1**' or remove it. '###' is only for Agents and Tasks.\n"
+        
+        if enable_supervisor:
+            review_crew_description += "\n8. VERIFY SUPERVISOR:\n"
+            review_crew_description += "   - Must have one Supervisor agent\n"
+            review_crew_description += f"   - Supervisor must use model: {supervisor_model}\n"
+            review_crew_description += "   - Must have quality gate tasks with APPROVED/REVISE logic\n"
+            review_crew_description += "   - Supervisor tasks must NOT create content, only evaluate\n"
+        
+        if enable_web_search:
+            review_crew_description += "\n9. VERIFY WEB SEARCH:\n"
+            review_crew_description += "   - Ensure agents like Researchers have **Tools**: brave_search\n"
+            review_crew_description += "   - Ensure the tool name is exactly 'brave_search'\n"
+        
+        review_crew_description += f"\nRefine it to be perfect."
+        
+        review_crew_task = Task(
+            description=review_crew_description,
+            expected_output="Clean, validated Crew.md content.",
+            agent=reviewer,
+            context=[write_crew_task]
+        )
+
+        # Task 4: Write Task.md
+        write_task_description = f"Write the 'Task.md' file. The file should represent the user's main task for the generated crew.\n"
+        write_task_description += "RULES:\n"
+        write_task_description += "1. It MUST start with '# User Task for Agents'.\n"
+        write_task_description += "2. After the header, you must ENHANCE and EXPAND the user's task description into a comprehensive, detailed task specification.\n"
+        write_task_description += "3. The enhanced description should:\n"
+        write_task_description += "   - Preserve the CORE INTENT and GOAL of the original user request\n"
+        write_task_description += "   - Add relevant CONTEXT, DETAILS, and SPECIFICS that clarify what needs to be done\n"
+        write_task_description += "   - Include CLEAR OBJECTIVES and EXPECTED OUTCOMES\n"
+        write_task_description += "   - Specify any relevant CONSTRAINTS, REQUIREMENTS, or QUALITY STANDARDS\n"
+        write_task_description += "   - Be written in a professional, clear, and actionable manner\n"
+        write_task_description += "4. DO NOT add conversational filler, greetings, or meta-commentary. Just the enhanced task description.\n"
+        write_task_description += f"5. Follow this format example as a quality reference:\n```markdown\n{task_example}\n```\n"
+        write_task_description += "   Notice how the example is detailed, specific, and comprehensive while remaining focused.\n"
+        
         if task_context:
-            design_description += f"\nCurrent Task Content:\n```markdown\n{task_context}\n```\n"
-        design_description += f"\nBased on the user feedback above, MODIFY and IMPROVE the existing configuration while preserving its structure.\n"
-    else:
-        design_description += "Plan the Agents and Tasks needed.\n"
-    
-    design_description += f"Consider the structure used in this EXAMPLE of a good Crew:\n"
-    design_description += f"```markdown\n{crew_example}\n```\n"
-    
-    design_task = Task(
-        description=design_description,
-        expected_output="A detailed plan for the agents and tasks with clear workflow.",
-        agent=architect
-    )
-
-    # Task 2: Write Crew.md with Architecture Support
-    write_crew_description = f"Write the 'Crew.md' file.\n"
-    write_crew_description += "RULES:\n"
-    write_crew_description += "1. OUTPUT MUST BE MARKDOWN, NOT PYTHON.\n"
-    write_crew_description += f"2. Follow this EXACT format (Example):\n```markdown\n{crew_example}\n```\n"
-    write_crew_description += f"3. Use the syntax rules:\n{crew_instructions}\n"
-    write_crew_description += "4. Do not include ```markdown or ``` tags if possible, just the content.\n"
-    write_crew_description += "5. IMPORTANT: Do NOT use '###' for section headers (e.g. '### Phase 1'). '###' is ONLY for Agent Names and Task Names. Use '**Bold**' for dividers.\n"
-    
-    # New: Add architecture configuration to Crew.md
-    write_crew_description += "\n6. Include a '## Configuration' section at the very beginning of the Crew.md file, immediately after '# Crew Team:'.\n"
-    write_crew_description += f"   - It must specify 'Architecture: {architecture}'.\n"
-    if enable_supervisor:
-        write_crew_description += f"   - It must specify 'Supervisor Agent: [The Name of the Supervisor Agent you create, e.g., 'Project Manager']'.\n"
-        write_crew_description += "     - IMPORTANT: Identify the supervisor agent's name from the agent you create with the role of a supervisor/manager.\n"
-    write_crew_description += "   - Example:\n     ```markdown\n     ## Configuration\n     - Architecture: sequential\n     - Supervisor Agent: None\n     ```\n"
-
-    if enable_supervisor:
-        write_crew_description += "\n7. SUPERVISOR IMPLEMENTATION:\n"
-        write_crew_description += "   - Create a Supervisor agent (e.g., 'Editorial Director', 'Quality Guardian', 'Project Manager')\n"
-        write_crew_description += f"   - Add line: **Model**: {supervisor_model}\n"
-        write_crew_description += "   - Create checkpoint tasks like:\n"
-        write_crew_description += "     ### Quality Gate: [Stage Name]\n"
-        write_crew_description += "     - **Description**: Review [[previous_output.md]]. If quality is sufficient, output 'APPROVED'. If not, output 'REVISE: [specific actionable feedback]'.\n"
-        write_crew_description += "     - **Expected Output**: Quality gate decision with clear reasoning\n"
-        write_crew_description += "     - **Agent**: [Supervisor Name]\n"
-    
-    if enable_tool_agent:
-        write_crew_description += "\n8. TOOL AGENT IMPLEMENTATION:\n"
-        write_crew_description += "   - Create a Tool Agent (e.g., 'Research Assistant', 'Information Specialist')\n"
-        if available_tools:
-            tool_names = [tool.name for tool in available_tools]
-            write_crew_description += f"   - Add line: **Tools**: {', '.join(tool_names)}\n"
+            write_task_description += f"\nMODIFICATION MODE: Modify the existing Task content below based on user feedback:\n"
+            write_task_description += f"```markdown\n{task_context}\n```\n"
+            write_task_description += f"Your goal is to update and enhance the detailed task for the crew based on the feedback: '{task_description}'. The output should still be a complete Task.md file."
         else:
-            write_crew_description += "   - Add line: **Tools**: FileReadTool, DirectoryReadTool\n"
-        write_crew_description += "   - This agent handles ALL external operations: file reading, web search, file navigation\n"
-        write_crew_description += "   - Other agents request information from Tool Agent instead of accessing tools directly\n"
-        write_crew_description += "   - Tool Agent outputs results that other agents can reference using [[tool_results.md]]\n"
-    
-    if crew_context:
-        write_crew_description += f"\nMODIFICATION MODE: Modify the existing Crew configuration below based on user feedback:\n"
-        write_crew_description += f"```markdown\n{crew_context}\n```\n"
-    
-    write_crew_task = Task(
-        description=write_crew_description,
-        expected_output="The content for Crew.md with all specified architecture features, including the new Configuration section.",
-        agent=writer
-    )
+            write_task_description += f"\nThe user's original task request is: '{task_description}'\n"
+            write_task_description += f"Your job is to transform this into a detailed, comprehensive task description that the crew can execute effectively.\n"
+        
+        write_task_input_task = Task(
+            description=write_task_description,
+            expected_output="The complete and correctly formatted content for Task.md, containing '# User Task for Agents' followed by an enhanced, detailed, and comprehensive task description that expands on the user's original request.",
+            agent=writer
+        )
 
-    # Task 3: Review Crew.md with Architecture Validation
-    review_crew_description = f"Review 'Crew.md'.\n"
-    review_crew_description += f"1. It must start with '# Crew Team:'.\n"
-    review_crew_description += f"2. It must have '## Configuration' section immediately after '# Crew Team:'.\n"
-    review_crew_description += f"3. In '## Configuration': Verify 'Architecture: {architecture}' and 'Supervisor Agent: {'[Name]' if enable_supervisor else 'None'}'.\n"
-    review_crew_description += f"4. It must have '## Agents' and '## Tasks'.\n"
-    review_crew_description += f"5. It must NOT contain `from crewai import` or any Python code.\n"
-    review_crew_description += f"6. It must match the structure of:\n```markdown\n{crew_example}\n```\n"
-    review_crew_description += f"7. CHECK FOR FORBIDDEN HEADERS: If you see '### Phase 1' or similar, CHANGE it to '**Phase 1**' or remove it. '###' is only for Agents and Tasks.\n"
-    
-    if enable_supervisor:
-        review_crew_description += "\n8. VERIFY SUPERVISOR:\n"
-        review_crew_description += "   - Must have one Supervisor agent\n"
-        review_crew_description += f"   - Supervisor must use model: {supervisor_model}\n"
-        review_crew_description += "   - Must have quality gate tasks with APPROVED/REVISE logic\n"
-        review_crew_description += "   - Supervisor tasks must NOT create content, only evaluate\n"
-    
-    if enable_tool_agent:
-        review_crew_description += "\n9. VERIFY TOOL AGENT:\n"
-        review_crew_description += "   - Must have one Tool Agent\n"
-        if available_tools:
-            tool_names = [tool.name for tool in available_tools]
-            review_crew_description += f"   - Tool Agent must list: **Tools**: {', '.join(tool_names)}\n"
+        # Task 5: Review Task.md
+        review_task_md_task = Task(
+            description="Review 'Task.md'. Ensure it adheres to the format: '# User Task for Agents' followed by an enhanced, detailed task description. The description should be comprehensive and actionable, NOT just a simple copy of the user's brief input. No conversational filler.",
+            expected_output="Clean, validated Task.md content with enhanced task description.",
+            agent=reviewer,
+            context=[write_task_input_task]
+        )
+
+        # Run Crew
+        meta_crew = Crew(
+            agents=[architect, writer, reviewer],
+            tasks=[design_task, write_crew_task, review_crew_task, write_task_input_task, review_task_md_task],
+            process=Process.sequential,
+            verbose=True
+        )
+
+        logging.info("Starting Meta-Crew kickoff...")
+        result = meta_crew.kickoff()
+        logging.info("Meta-Crew kickoff completed.")
+        
+        # Save outputs
+        crew_md_raw = str(review_crew_task.output.raw)
+        task_md_raw = str(review_task_md_task.output.raw)
+
+        crew_md_clean = clean_markdown(crew_md_raw)
+        task_md_clean = clean_markdown(task_md_raw)
+
+        print("\n--- Saving Configuration Files ---")
+
+        # Determine output directory
+        if output_dir:
+            target_dir = output_dir
+            if not os.path.exists(target_dir):
+                os.makedirs(target_dir)
         else:
-            review_crew_description += "   - Tool Agent must list: **Tools**: FileReadTool, DirectoryReadTool\n"
-        review_crew_description += "   - Other agents should reference Tool Agent's outputs\n"
-    
-    review_crew_description += f"\nRefine it to be perfect."
-    
-    review_crew_task = Task(
-        description=review_crew_description,
-        expected_output="Clean, validated Crew.md content.",
-        agent=reviewer,
-        context=[write_crew_task]
-    )
+            target_dir = os.getcwd()
 
-    # Task 4: Write Task.md
-    write_task_description = f"Write the 'Task.md' file. The file should represent the user's main task for the generated crew.\n"
-    write_task_description += "RULES:\n"
-    write_task_description += "1. It MUST start with '# User Task for Agents'.\n"
-    write_task_description += "2. After the header, you must ENHANCE and EXPAND the user's task description into a comprehensive, detailed task specification.\n"
-    write_task_description += "3. The enhanced description should:\n"
-    write_task_description += "   - Preserve the CORE INTENT and GOAL of the original user request\n"
-    write_task_description += "   - Add relevant CONTEXT, DETAILS, and SPECIFICS that clarify what needs to be done\n"
-    write_task_description += "   - Include CLEAR OBJECTIVES and EXPECTED OUTCOMES\n"
-    write_task_description += "   - Specify any relevant CONSTRAINTS, REQUIREMENTS, or QUALITY STANDARDS\n"
-    write_task_description += "   - Be written in a professional, clear, and actionable manner\n"
-    write_task_description += "4. DO NOT add conversational filler, greetings, or meta-commentary. Just the enhanced task description.\n"
-    write_task_description += f"5. Follow this format example as a quality reference:\n```markdown\n{task_example}\n```\n"
-    write_task_description += "   Notice how the example is detailed, specific, and comprehensive while remaining focused.\n"
-    
-    if task_context:
-        write_task_description += f"\nMODIFICATION MODE: Modify the existing Task content below based on user feedback:\n"
-        write_task_description += f"```markdown\n{task_context}\n```\n"
-        write_task_description += f"Your goal is to update and enhance the detailed task for the crew based on the feedback: '{task_description}'. The output should still be a complete Task.md file."
-    else:
-        write_task_description += f"\nThe user's original task request is: '{task_description}'\n"
-        write_task_description += f"Your job is to transform this into a detailed, comprehensive task description that the crew can execute effectively.\n"
-    
-    write_task_input_task = Task(
-        description=write_task_description,
-        expected_output="The complete and correctly formatted content for Task.md, containing '# User Task for Agents' followed by an enhanced, detailed, and comprehensive task description that expands on the user's original request.",
-        agent=writer
-    )
+        # Save to target directory
+        crew_path = os.path.join(target_dir, "Crew.md")
+        with open(crew_path, "w", encoding="utf-8") as f:
+            f.write(crew_md_clean)
+            print(f"Created {crew_path}")
+        
+        task_path = os.path.join(target_dir, "Task.md")
+        with open(task_path, "w", encoding="utf-8") as f:
+            f.write(task_md_clean)
+            print(f"Created {task_path}")
 
-    # Task 5: Review Task.md
-    review_task_md_task = Task(
-        description="Review 'Task.md'. Ensure it adheres to the format: '# User Task for Agents' followed by an enhanced, detailed task description. The description should be comprehensive and actionable, NOT just a simple copy of the user's brief input. No conversational filler.",
-        expected_output="Clean, validated Task.md content with enhanced task description.",
-        agent=reviewer,
-        context=[write_task_input_task]
-    )
+        print("\n--- ARCHITECTURE SUMMARY ---")
+        print(f"Architecture: {architecture}")
+        print(f"Supervisor: {'ENABLED' if enable_supervisor else 'DISABLED'}")
+        print(f"Web Search: {'ENABLED' if enable_web_search else 'DISABLED'}")
+        print("\nSuccess! You can now run the crew with: python script/run_crew.py")
 
-    # Run Crew
-    meta_crew = Crew(
-        agents=[architect, writer, reviewer],
-        tasks=[design_task, write_crew_task, review_crew_task, write_task_input_task, review_task_md_task],
-        process=Process.sequential,
-        verbose=True
-    )
+    except Exception as e:
+        logging.critical("CRITICAL ERROR during creation:", exc_info=True)
+        print(f"\n❌ FATAL ERROR: {str(e)}")
+        print(f"See {os.path.join(output_dir if output_dir else os.getcwd(), 'creation_debug.log')} for details.")
+        raise
 
-    result = meta_crew.kickoff()
-    
-    # Save outputs
-    crew_md_raw = str(review_crew_task.output.raw)
-    task_md_raw = str(review_task_md_task.output.raw)
-
-    crew_md_clean = clean_markdown(crew_md_raw)
-    task_md_clean = clean_markdown(task_md_raw)
-
-    print("\n--- Saving Configuration Files ---")
-
-    # Determine output directory
-    if output_dir:
-        target_dir = output_dir
-        if not os.path.exists(target_dir):
-            os.makedirs(target_dir)
-    else:
-        target_dir = PROJECT_ROOT
-
-    # Save to target directory
-    crew_path = os.path.join(target_dir, "Crew.md")
-    with open(crew_path, "w", encoding="utf-8") as f:
-        f.write(crew_md_clean)
-        print(f"Created {crew_path}")
-    
-    task_path = os.path.join(target_dir, "Task.md")
-    with open(task_path, "w", encoding="utf-8") as f:
-        f.write(task_md_clean)
-        print(f"Created {task_path}")
-
-    print("\n--- ARCHITECTURE SUMMARY ---")
-    print(f"Architecture: {architecture}")
-    print(f"Supervisor: {'ENABLED' if enable_supervisor else 'DISABLED'}")
-    print(f"Tool Agent: {'ENABLED' if enable_tool_agent else 'DISABLED'}")
-    print("\nSuccess! You can now run the crew with: python script/run_crew.py")
-
-def build_architecture_instructions(architecture, enable_supervisor, enable_tool_agent, supervisor_model):
+def build_architecture_instructions(architecture, enable_supervisor, enable_web_search, supervisor_model):
     """Build detailed instructions for the requested architecture."""
     
     instructions = f"\n**ARCHITECTURE TYPE: {architecture.upper()}**\n"
@@ -437,14 +431,12 @@ def build_architecture_instructions(architecture, enable_supervisor, enable_tool
 - Does NOT: Create content, only evaluates and directs
 """
     
-    if enable_tool_agent:
+    if enable_web_search:
         instructions += """
-**TOOL AGENT (Centralized):**
-- One agent handles ALL external operations
-- Responsibilities: web search, file reading, data extraction
-- Available tools: FileReadTool, WebsiteSearchTool, SerperDevTool
-- Other agents REQUEST information from Tool Agent
-- Benefits: No duplicate searches, consistent formatting, easier debugging
+**WEB SEARCH CAPABILITY:**
+- You have access to the 'brave_search' tool.
+- Assign this tool to agents that need to find fresh information (like Researchers).
+- Usage in Crew.md: **Tools**: brave_search
 """
     
     return instructions
@@ -463,16 +455,13 @@ Examples:
   # Hierarchical with supervisor
   python create_crew.py "Research and write report" --architecture hierarchical --supervisor
   
-  # Full featured: hierarchical + supervisor + tool agent + custom model
+  # Full featured: hierarchical + supervisor + web search + custom model
   python create_crew.py "Complex research project" \\
       --architecture hierarchical \\
       --supervisor \\
       --supervisor-model llama3.1:70b \\
-      --tool-agent \\
+      --web-search \\
       --model llama3.1:8b
-  
-  # Sequential with tool agent only
-  python create_crew.py "Process documents" --tool-agent
         """
     )
     
@@ -512,12 +501,6 @@ Examples:
       help="Enable web search capabilities for agents"
     )
 
-    # parser.add_argument(
-    #     "--tool-agent",
-    #     action="store_true",
-    #     help="Enable dedicated Tool Agent for all external operations"
-    # )
-
     parser.add_argument(
         "--output-dir",
         default=None,
@@ -531,7 +514,7 @@ Examples:
         model_name=args.model,
         architecture=args.architecture,
         enable_supervisor=args.supervisor,
-        enable_tool_agent=args.web_search,
+        enable_web_search=args.web_search,
         supervisor_model=args.supervisor_model,
         output_dir=args.output_dir
     )

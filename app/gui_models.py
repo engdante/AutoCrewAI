@@ -137,7 +137,8 @@ class CrewModel:
                         'role': find_d(r"\*\*\s*Role\s*\*\*: (.*)", details),
                         'goal': find_d(r"\*\*\s*Goal\s*\*\*: (.*)", details),
                         'backstory': find_d(r"\*\*\s*Backstory\s*\*\*: (.*)", details),
-                        'model': find_d(r"\*\*\s*Model\s*\*\*: (.*)", details)
+                        'model': find_d(r"\*\*\s*Model\s*\*\*: (.*)", details),
+                        'web_search': "brave_search" in find_d(r"\*\*\s*Tools\s*\*\*: (.*)", details)
                     })
 
             # Parse Tasks
@@ -192,7 +193,10 @@ class CrewModel:
                 crew_output += f"- **Role**: {a['role']}\n"
                 crew_output += f"- **Goal**: {a['goal']}\n"
                 crew_output += f"- **Backstory**: {a['backstory']}\n"
-                crew_output += f"- **Model**: {a['model']}\n\n"
+                crew_output += f"- **Model**: {a['model']}\n"
+                if a.get('web_search'):
+                    crew_output += f"- **Tools**: brave_search\n"
+                crew_output += "\n"
             
             crew_output += "## Tasks\n\n"
             for t in tasks_data:

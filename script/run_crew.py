@@ -2,6 +2,8 @@ import re
 import os
 import sys
 import warnings
+import logging
+import traceback
 
 # Suppress Pydantic V2 compatibility warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='pydantic')
@@ -26,12 +28,39 @@ from tools_registry import get_tool_agent_tools
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 INPUT_DIR = os.path.join(PROJECT_ROOT, "input")
-OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
+# Default to None, will be set relative to crew file if not provided
+OUTPUT_DIR = None 
 
-# Ensure output directory exists
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+def setup_logging(output_dir):
+    """Sets up logging to a run_debug.log file in the crew's root directory."""
+    if not output_dir:
+        return
+        
+    # Move up one level from output directory to reach crew root
+    crew_root = os.path.dirname(output_dir)
+    log_file = os.path.join(crew_root, "run_debug.log")
+    
+    # Reset existing handlers to avoid duplicates
+    root = logging.getLogger()
+    if root.handlers:
+        for handler in root.handlers:
+            root.removeHandler(handler)
+            
+    logging.basicConfig(
+        filename=log_file,
+        level=logging.DEBUG,
+        format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+        encoding='utf-8'
+    )
+    logging.info("--- Execution Started ---")
+    print(f"--- [DEBUG] Logging details to: {log_file} ---")
 
-# Load environment variables from .env file in project root
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Set environment variable so tools (like FileWriteTool) know where to write
+    os.environ["CREW_OUTPUT_DIR"] = OUTPUT_DIR
+    
+    setup_logging(OUTPUT_DIR)
 env_path = os.path.join(PROJECT_ROOT, ".env")
 load_dotenv(env_path)
 
@@ -207,151 +236,177 @@ def parse_crew_md(file_path, task_input_content):
     return crew_title, list(agents.values()), tasks_data, crew_architecture, crew_supervisor_agent_name
 
 def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False):
+    global OUTPUT_DIR
+    
+    # If output_dir is provided via CLI, use it. 
+    # Otherwise, use the 'output' folder inside the crew's directory.
     if output_dir:
-        global OUTPUT_DIR
         OUTPUT_DIR = output_dir
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
+    else:
+        crew_dir = os.path.dirname(os.path.abspath(crew_file))
+        OUTPUT_DIR = os.path.join(crew_dir, "output")
+        
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    setup_logging(OUTPUT_DIR)
 
-    print(f"--- Loading Crew from {crew_file} ---")
-    
-    task_input_content = ""
-    if os.path.exists(task_file):
-        with open(task_file, 'r', encoding='utf-8') as f:
-            task_input_content = f.read()
-    
-    title, agent_list, tasks_data, architecture, supervisor_agent_name = parse_crew_md(crew_file, task_input_content)
-    
-    # Inject Web Search Tools if enabled
-    if enable_web_search:
-        print(f"--- [INFO] Web Search Enabled: Injecting tools into all agents ---")
-        try:
-            extra_tools = get_tool_agent_tools()
-            tool_names = [t.name for t in extra_tools]
-            print(f"    Tools injected: {', '.join(tool_names)}")
-            
-            for agent in agent_list:
-                # Add tools if not already present
-                existing_names = [t.name for t in agent.tools] if agent.tools else []
-                new_tools = [t for t in extra_tools if t.name not in existing_names]
+    try:
+        logging.info(f"Loading crew from: {crew_file}")
+        logging.info(f"Loading task from: {task_file}")
+        
+        print(f"--- Loading Crew from {crew_file} ---")
+        
+        task_input_content = ""
+        if os.path.exists(task_file):
+            with open(task_file, 'r', encoding='utf-8') as f:
+                task_input_content = f.read()
+        
+        title, agent_list, tasks_data, architecture, supervisor_agent_name = parse_crew_md(crew_file, task_input_content)
+        
+        # Inject Web Search Tools if enabled
+        if enable_web_search:
+            print(f"--- [INFO] Web Search Enabled: Injecting tools into all agents ---")
+            logging.info("Web Search Enabled via CLI flag")
+            try:
+                extra_tools = get_tool_agent_tools()
+                tool_names = [t.name for t in extra_tools]
+                print(f"    Tools injected: {', '.join(tool_names)}")
                 
-                if new_tools:
-                    if agent.tools is None:
-                        agent.tools = []
-                    agent.tools.extend(new_tools)
-                    print(f"    -> Added {len(new_tools)} tools to agent '{agent.role}'")
-        except Exception as e:
-            print(f"    [WARNING] Failed to inject tools: {e}")
-    
-    # Convert agent_list to a dictionary for easier lookup by name
-    agents_dict = {agent.role: agent for agent in agent_list} # Assuming role is unique and used as identifier
-
-    crew_process = Process.sequential
-    manager_agent = None
-
-    if architecture == "hierarchical":
-        crew_process = Process.hierarchical
-        if supervisor_agent_name:
-            # Try to find supervisor by the exact name from Crew.md
-            manager_agent = agents_dict.get(supervisor_agent_name)
-            if not manager_agent:
-                # Fallback: try to find an agent whose name contains "supervisor" or "manager"
-                # This is a bit risky if multiple agents contain these keywords, 
-                # but provides robustness if the exact name isn't matched.
-                for agent_name, agent_obj in agents_dict.items():
-                    if "supervisor" in agent_name.lower() or "manager" in agent_name.lower():
-                        manager_agent = agent_obj
-                        print(f"Warning: Exact supervisor agent '{supervisor_agent_name}' not found. Using '{agent_name}' as fallback manager agent.")
-                        break
-
-            if not manager_agent:
-                print(f"Error: Hierarchical architecture specified, but supervisor agent '{supervisor_agent_name}' not found.")
-                return
-
-    # 1. Logic: Skip Style Analysis if book_summary.md already exists in output
-    book_summary_path = os.path.join(OUTPUT_DIR, "book_summary.md")
-    if os.path.exists(book_summary_path):
-        print(f"--- [DEBUG] book_summary.md found in output/. Checking tasks to skip... ---")
-        filtered_tasks = []
-        summary_to_inject = None
+                for agent in agent_list:
+                    # Add tools if not already present
+                    existing_names = [t.name for t in agent.tools] if agent.tools else []
+                    new_tools = [t for t in extra_tools if t.name not in existing_names]
+                    
+                    if new_tools:
+                        if agent.tools is None:
+                            agent.tools = []
+                        agent.tools.extend(new_tools)
+                        print(f"    -> Added {len(new_tools)} tools to agent '{agent.role}'")
+            except Exception as e:
+                logging.error(f"Failed to inject tools: {e}")
+                print(f"    [WARNING] Failed to inject tools: {e}")
         
-        # Read existing summary once
-        with open(book_summary_path, "r", encoding="utf-8") as f:
-            summary_to_inject = f.read()
+        # Convert agent_list to a dictionary for easier lookup by name
+        agents_dict = {agent.role: agent for agent in agent_list} # Assuming role is unique and used as identifier
 
-        for td in tasks_data:
-            if td["custom_output"] == "book_summary.md":
-                print(f"--- [SKIP] Skipping task '{td['name']}' because output already exists. ---")
-            else:
-                # If we are skipping the style task, inject its content into the development task
+        crew_process = Process.sequential
+        manager_agent = None
+
+        if architecture == "hierarchical":
+            crew_process = Process.hierarchical
+            if supervisor_agent_name:
+                # Try to find supervisor by the exact name from Crew.md
+                manager_agent = agents_dict.get(supervisor_agent_name)
+                if not manager_agent:
+                    # Fallback: try to find an agent whose name contains "supervisor" or "manager"
+                    # This is a bit risky if multiple agents contain these keywords, 
+                    # but provides robustness if the exact name isn't matched.
+                    for agent_name, agent_obj in agents_dict.items():
+                        if "supervisor" in agent_name.lower() or "manager" in agent_name.lower():
+                            manager_agent = agent_obj
+                            print(f"Warning: Exact supervisor agent '{supervisor_agent_name}' not found. Using '{agent_name}' as fallback manager agent.")
+                            logging.warning(f"Fallback supervisor used: {agent_name}")
+                            break
+
+                if not manager_agent:
+                    msg = f"Hierarchical architecture specified, but supervisor agent '{supervisor_agent_name}' not found."
+                    print(f"Error: {msg}")
+                    logging.error(msg)
+                    return
+
+        # 1. Logic: Skip Style Analysis if book_summary.md already exists in output
+        book_summary_path = os.path.join(OUTPUT_DIR, "book_summary.md")
+        if os.path.exists(book_summary_path):
+            print(f"--- [DEBUG] book_summary.md found in output/. Checking tasks to skip... ---")
+            filtered_tasks = []
+            summary_to_inject = None
+            
+            # Read existing summary once
+            with open(book_summary_path, "r", encoding="utf-8") as f:
+                summary_to_inject = f.read()
+
+            for td in tasks_data:
+                if td["custom_output"] == "book_summary.md":
+                    print(f"--- [SKIP] Skipping task '{td['name']}' because output already exists. ---")
+                else:
+                    # If we are skipping the style task, inject its content into the development task
+                    if any(k in td["name"].lower() for k in ["enrich", "develop", "write"]):
+                        print(f"--- [INJECT] Injecting existing book_summary.md into '{td['name']}' ---")
+                        td["task"].description = f"Existing Style Guide (from book_summary.md):\n{summary_to_inject}\n\n{td['task'].description}"
+                    filtered_tasks.append(td)
+            
+            tasks_data = filtered_tasks
+
+        # 2. Logic: Inject Task_Feedback.md if it exists in output
+        feedback_path = os.path.join(OUTPUT_DIR, "Task_Feedback.md")
+        if os.path.exists(feedback_path):
+            print(f"--- [FEEDBACK] Task_Feedback.md found in output/. Injecting into Enrichment task... ---")
+            with open(feedback_path, "r", encoding='utf-8') as f:
+                feedback_content = f.read()
+            
+            for td in tasks_data:
+                # Inject into the Enrichment/Development task
                 if any(k in td["name"].lower() for k in ["enrich", "develop", "write"]):
-                    print(f"--- [INJECT] Injecting existing book_summary.md into '{td['name']}' ---")
-                    td["task"].description = f"Existing Style Guide (from book_summary.md):\n{summary_to_inject}\n\n{td['task'].description}"
-                filtered_tasks.append(td)
-        
-        tasks_data = filtered_tasks
+                    print(f"--- [INJECT] Injecting feedback into '{td['name']}' ---")
+                    td["task"].description = f"PREVIOUS EDITORIAL FEEDBACK TO ADDRESS:\n{feedback_content}\n\n{td['task'].description}"
+                    # We only inject into the first matching task (the main production one)
+                    break
 
-    # 2. Logic: Inject Task_Feedback.md if it exists in output
-    feedback_path = os.path.join(OUTPUT_DIR, "Task_Feedback.md")
-    if os.path.exists(feedback_path):
-        print(f"--- [FEEDBACK] Task_Feedback.md found in output/. Injecting into Enrichment task... ---")
-        with open(feedback_path, "r", encoding='utf-8') as f:
-            feedback_content = f.read()
+        if not agent_list or not tasks_data:
+            print("Error: No agents or tasks found. Check your Crew.md syntax.")
+            logging.error("No agents or tasks parsed.")
+            return
+
+        print(f"Starting Crew: {title} (Architecture: {architecture.upper()})")
+        if manager_agent:
+            print(f"    Manager Agent: {manager_agent.role}")
         
+        crew = Crew(
+            agents=agent_list,
+            tasks=[td["task"] for td in tasks_data],
+            process=crew_process,
+            manager_agent=manager_agent if manager_agent else None, # Pass manager_agent only if hierarchical
+            verbose=True
+        )
+
+        logging.info("Kickoff starting...")
+        result = crew.kickoff()
+        logging.info("Kickoff completed successfully.")
+        
+        # Process outputs
         for td in tasks_data:
-            # Inject into the Enrichment/Development task
-            if any(k in td["name"].lower() for k in ["enrich", "develop", "write"]):
-                print(f"--- [INJECT] Injecting feedback into '{td['name']}' ---")
-                td["task"].description = f"PREVIOUS EDITORIAL FEEDBACK TO ADDRESS:\n{feedback_content}\n\n{td['task'].description}"
-                # We only inject into the first matching task (the main production one)
-                break
+            t_name = td["name"].lower()
+            t_output = td["task"].output.raw if hasattr(td["task"].output, 'raw') else str(td["task"].output)
+            
+            # Priority 1: Custom output file
+            if td["custom_output"]:
+                target_f = td["custom_output"]
+            # Priority 2: Keyword-based routing
+            elif any(k in t_name for k in ["plan", "strategy", "analysis", "guide", "outline"]):
+                target_f = "Task_Plan.md"
+            elif any(k in t_name for k in ["result", "execute", "enrich", "develop", "write", "creation"]):
+                target_f = "Task_Result.md"
+            elif any(k in t_name for k in ["feedback", "evaluation", "review", "edit"]):
+                target_f = "Task_Feedback.md"
+            else:
+                target_f = None
 
-    if not agent_list or not tasks_data:
-        print("Error: No agents or tasks found. Check your Crew.md syntax.")
-        return
+            if target_f:
+                # Write to output directory
+                output_path = os.path.join(OUTPUT_DIR, target_f)
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(t_output)
+                print(f"Saved output of '{td['name']}' to {output_path}")
 
-    print(f"Starting Crew: {title} (Architecture: {architecture.upper()})")
-    if manager_agent:
-        print(f"    Manager Agent: {manager_agent.role}")
-    
-    crew = Crew(
-        agents=agent_list,
-        tasks=[td["task"] for td in tasks_data],
-        process=crew_process,
-        manager_agent=manager_agent if manager_agent else None, # Pass manager_agent only if hierarchical
-        verbose=True
-    )
-
-    result = crew.kickoff()
-    
-    # Process outputs
-    for td in tasks_data:
-        t_name = td["name"].lower()
-        t_output = td["task"].output.raw if hasattr(td["task"].output, 'raw') else str(td["task"].output)
+        print("\n\n########################")
+        print(f"## FINAL RESULT FOR {title}:")
+        print("########################\n")
+        print(result)
         
-        # Priority 1: Custom output file
-        if td["custom_output"]:
-            target_f = td["custom_output"]
-        # Priority 2: Keyword-based routing
-        elif any(k in t_name for k in ["plan", "strategy", "analysis", "guide", "outline"]):
-            target_f = "Task_Plan.md"
-        elif any(k in t_name for k in ["result", "execute", "enrich", "develop", "write", "creation"]):
-            target_f = "Task_Result.md"
-        elif any(k in t_name for k in ["feedback", "evaluation", "review", "edit"]):
-            target_f = "Task_Feedback.md"
-        else:
-            target_f = None
-
-        if target_f:
-            # Write to output directory
-            output_path = os.path.join(OUTPUT_DIR, target_f)
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(t_output)
-            print(f"Saved output of '{td['name']}' to {output_path}")
-
-    print("\n\n########################")
-    print(f"## FINAL RESULT FOR {title}:")
-    print("########################\n")
-    print(result)
+    except Exception as e:
+        logging.critical("CRITICAL ERROR during execution:", exc_info=True)
+        print(f"\n❌ FATAL ERROR: {str(e)}")
+        print(f"See {os.path.join(OUTPUT_DIR, 'debug.log')} for full technical details.")
+        raise
 
 if __name__ == "__main__":
     if not os.environ.get("OPENAI_API_KEY"):

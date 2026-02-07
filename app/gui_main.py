@@ -1,5 +1,6 @@
 import tkinter as tk
 import os
+import requests
 from tkinter import ttk, messagebox
 import threading
 from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -48,6 +49,9 @@ class CrewAIGUI:
         
         # Auto-load logic
         self.auto_load()
+        
+        # Start monitoring
+        self.update_monitor_stats()
 
     def create_widgets(self):
         # Main Layout
@@ -212,6 +216,53 @@ class CrewAIGUI:
         self.user_task_scrollbar.pack(side="right", fill="y")
         add_context_menu(self.user_task_text)
 
+        # Status Bar for Monitoring
+        self.status_bar = ttk.Frame(self.root, relief="sunken", padding=(10, 2))
+        self.status_bar.pack(side="bottom", fill="x")
+        self.monitor_label = ttk.Label(self.status_bar, text="Monitor: Initializing...", font=("Segoe UI", 9))
+        self.monitor_label.pack(side="left")
+
+    # --- Monitoring Logic ---
+    def update_monitor_stats(self):
+        """Fetch system stats from the monitor server and update the status bar"""
+        def fetch_thread():
+            server = os.getenv("OLLAMA_SERVER", "192.168.110.158").strip("'\"")
+            port = os.getenv("MONITOR_PORT", "5000").strip("'\"")
+            url = f"http://{server}:{port}/stats/summary"
+            try:
+                response = requests.get(url, timeout=3)
+                if response.status_code == 200:
+                    data = response.json()
+                    parts = []
+                    parts.append(f"CPU: {data.get('cpu_usage', 'N/A')}")
+                    parts.append(f"RAM: {data.get('ram_usage', 'N/A')}")
+                    parts.append(f"Disk: {data.get('disk_usage', 'N/A')}")
+                    
+                    # Check for GPUs
+                    gpu_idx = 0
+                    while f'gpu_{gpu_idx}_usage' in data:
+                        parts.append(f"GPU{gpu_idx}: {data[f'gpu_{gpu_idx}_usage']} (VRAM: {data[f'gpu_{gpu_idx}_vram']})")
+                        gpu_idx += 1
+                        
+                    if 'ollama_models' in data:
+                        parts.append(f"Models: {data['ollama_models']}")
+                    
+                    text = " | ".join(parts)
+                    self.root.after(0, lambda: self.monitor_label.config(text=text, foreground="black"))
+                else:
+                    self.root.after(0, lambda: self.monitor_label.config(text=f"Monitor: HTTP {response.status_code} ({url})", foreground="orange"))
+            except requests.exceptions.Timeout:
+                self.root.after(0, lambda: self.monitor_label.config(text=f"Monitor: Timeout ({url})", foreground="red"))
+            except requests.exceptions.ConnectionError:
+                self.root.after(0, lambda: self.monitor_label.config(text=f"Monitor: Connection Refused ({url})", foreground="red"))
+            except Exception as e:
+                self.root.after(0, lambda: self.monitor_label.config(text=f"Monitor: Error {type(e).__name__} ({url})", foreground="red"))
+            
+            # Schedule next update in 2 seconds (to avoid spamming)
+            self.root.after(2000, self.update_monitor_stats)
+
+        threading.Thread(target=fetch_thread, daemon=True).start()
+
     # --- Scroll & Resize Logic ---
     def _on_frame_configure(self, event):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
@@ -327,6 +378,12 @@ class CrewAIGUI:
         refresh_btn = ttk.Button(model_frame, text="↻", width=3, 
                                command=lambda e=model_entry: self.fetch_ollama_models(e))
         refresh_btn.pack(side="right", padx=(5, 0))
+
+        # Web Search Checkbox
+        ws_var = tk.BooleanVar(value=data.get('web_search', False) if data else False)
+        ws_check = ttk.Checkbutton(model_frame, text="Web Search", variable=ws_var)
+        ws_check.pack(side="right", padx=(10, 5))
+
         add_context_menu(model_entry)
 
         btn_frame = ttk.Frame(frame)
@@ -338,7 +395,8 @@ class CrewAIGUI:
             'role': role_entry,
             'goal': goal_entry,
             'backstory': backstory_text,
-            'model': model_entry
+            'model': model_entry,
+            'web_search_var': ws_var
         }
         
         ttk.Button(btn_frame, text="Remove Agent", command=lambda: self.remove_agent(agent_item)).pack(padx=10)
@@ -433,7 +491,8 @@ class CrewAIGUI:
                 'role': a['role'].get().strip(),
                 'goal': a['goal'].get().strip(),
                 'backstory': a['backstory'].get('1.0', tk.END).strip(),
-                'model': a['model'].get().strip()
+                'model': a['model'].get().strip(),
+                'web_search': a['web_search_var'].get()
             })
             
         tasks_data = []

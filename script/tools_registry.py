@@ -50,7 +50,11 @@ class FileIntelligenceTool(BaseTool):
     def _run(self, query: str) -> str:
         """Find relevant files based on query."""
         found_files = []
-        exclude_dirs = ["conda", "__pycache__", ".git", ".venv", "output", "node_modules"]
+        # Get dynamic output dir from environment or default to local 'output'
+        current_output_dir = os.environ.get("CREW_OUTPUT_DIR", "output")
+        output_name = os.path.basename(current_output_dir)
+        
+        exclude_dirs = ["conda", "__pycache__", ".git", ".venv", output_name, "node_modules", "output"]
         
         for root, dirs, files in os.walk(os.getcwd()):
             # Filter directories in-place to prevent walking into excluded ones
@@ -81,8 +85,11 @@ class FileWriteTool(BaseTool):
 
     def _run(self, filename: str, content: str) -> str:
         try:
-            # Ensure output directory exists
-            output_dir = os.path.join(os.getcwd(), "output")
+            # Use dynamic output directory from environment or default to local "output"
+            output_dir = os.environ.get("CREW_OUTPUT_DIR")
+            if not output_dir:
+                output_dir = os.path.join(os.getcwd(), "output")
+            
             os.makedirs(output_dir, exist_ok=True)
             
             filepath = os.path.join(output_dir, filename)

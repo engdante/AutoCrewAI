@@ -170,7 +170,6 @@ def open_generate_dialog(root, app):
     gen_win.geometry(f"+{gx}+{gy}")
     
     gen_win.transient(root)
-    gen_win.grab_set()
 
     # --- Configuration Frame ---
     config_frame = ttk.LabelFrame(gen_win, text="Generation Settings")
