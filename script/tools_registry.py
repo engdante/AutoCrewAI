@@ -15,8 +15,10 @@ from langchain_community.tools import BraveSearch
 warnings.filterwarnings("ignore", category=UserWarning, module='pydantic')
 try:
     from annas_archive_tool import AnnasArchiveTool
+    from rag_book_tool import AskBookTool
 except (ImportError, ModuleNotFoundError):
     from script.annas_archive_tool import AnnasArchiveTool
+    from script.rag_book_tool import AskBookTool
 
 class BraveSearchInput(BaseModel):
     """Input schema for BraveSearchTool."""
@@ -137,6 +139,9 @@ def get_tool_agent_tools():
     
     # Anna's Archive tool
     tools.append(AnnasArchiveTool())
+    
+    # RAG Book Tool
+    tools.append(AskBookTool())
     
     return tools
 

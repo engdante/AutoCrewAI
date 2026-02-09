@@ -6,3 +6,8 @@ langchain-community
 beautifulsoup4
 pypdf
 ebooklib
+chromadb
+langchain-chroma
+rank_bm25
+sentence-transformers
+unstructured

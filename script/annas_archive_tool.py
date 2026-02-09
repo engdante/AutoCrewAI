@@ -114,7 +114,16 @@ class AnnasArchiveTool(BaseTool):
             # 8. Reading logic (Short snippet)
             content_snippet = self._read_file(final_path, real_ext)
             
-            return f"Successfully downloaded '{query}' to '{final_path}' (Format: {real_ext.upper()}).\n\nContent Preview:\n{content_snippet}"
+            # 9. RAG Indexing (Auto-index after download)
+            try:
+                from .rag_storage import RAGStorage
+                storage = RAGStorage()
+                storage.add_book(final_path, book_id=query)
+                rag_status = "\n[RAG] Book indexed successfully for querying."
+            except Exception as e:
+                rag_status = f"\n[RAG] Failed to index book: {e}"
+
+            return f"Successfully downloaded '{query}' to '{final_path}' (Format: {real_ext.upper()}).\n\nContent Preview:\n{content_snippet}{rag_status}"
 
         except Exception as e:
             return f"Error executing AnnasArchiveTool: {str(e)}"

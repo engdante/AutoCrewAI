@@ -159,7 +159,7 @@ def open_settings(root, app):
 def open_generate_dialog(root, app):
     gen_win = tk.Toplevel(root)
     gen_win.title("Generate Crew")
-    gen_win.geometry("800x850")
+    gen_win.geometry("800x950")
     
     root.update_idletasks()
     rx = root.winfo_x()
@@ -167,7 +167,7 @@ def open_generate_dialog(root, app):
     rw = root.winfo_width()
     rh = root.winfo_height()
     gx = rx + (rw // 2) - 400
-    gy = ry + (rh // 2) - 425
+    gy = ry + (rh // 2) - 475
     gen_win.geometry(f"+{gx}+{gy}")
     
     gen_win.transient(root)
@@ -184,7 +184,7 @@ def open_generate_dialog(root, app):
 
     task_text_frame = ttk.Frame(config_frame)
     task_text_frame.grid(row=1, column=0, columnspan=4, sticky="ew", padx=5, pady=2)
-    task_text = tk.Text(task_text_frame, height=9, font=("Segoe UI", 10), wrap="word")
+    task_text = tk.Text(task_text_frame, height=8, font=("Segoe UI", 10), wrap="word")
     task_scrollbar = ttk.Scrollbar(task_text_frame, orient="vertical", command=task_text.yview)
     task_text.configure(yscrollcommand=task_scrollbar.set)
     task_text.pack(side="left", fill="both", expand=True)
@@ -245,7 +245,7 @@ def open_generate_dialog(root, app):
     ttk.Label(gen_win, text="Feedback / Refinement (for Refine button):").pack(side="top", anchor="w", padx=20, pady=(10, 5))
     feedback_frame = ttk.Frame(gen_win)
     feedback_frame.pack(side="top", fill="x", padx=20, pady=5)
-    feedback_text = tk.Text(feedback_frame, height=9, font=("Segoe UI", 10), wrap="word")
+    feedback_text = tk.Text(feedback_frame, height=4, font=("Segoe UI", 10), wrap="word")
     feedback_scrollbar = ttk.Scrollbar(feedback_frame, orient="vertical", command=feedback_text.yview)
     feedback_text.configure(yscrollcommand=feedback_scrollbar.set)
     feedback_text.pack(side="left", fill="x", expand=True)
@@ -256,7 +256,7 @@ def open_generate_dialog(root, app):
     ttk.Label(gen_win, text="Generation Log:").pack(side="top", anchor="w", padx=20, pady=(10, 5))
     log_frame = ttk.Frame(gen_win)
     log_frame.pack(side="top", fill="both", expand=True, padx=20)
-    log_text = tk.Text(log_frame, font=("Consolas", 9), wrap="word", bg="#f0f0f0")
+    log_text = tk.Text(log_frame, height=15, font=("Consolas", 9), wrap="word", bg="#f0f0f0")
     log_scroll = ttk.Scrollbar(log_frame, command=log_text.yview)
     log_text.configure(yscrollcommand=log_scroll.set)
     log_text.pack(side="left", fill="both", expand=True)
