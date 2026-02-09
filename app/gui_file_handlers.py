@@ -165,3 +165,22 @@ def refresh_input_files(self):
     
     except Exception as e:
         messagebox.showerror("Error", f"Failed to list files: {e}")
+
+def open_input_file(self):
+    """Open the selected input file"""
+    selection = self.files_listbox.curselection()
+    if not selection:
+        return
+        
+    file_name = self.files_listbox.get(selection[0])
+    file_path = os.path.join(self.model.current_crew_path, "input", file_name)
+    
+    if os.path.exists(file_path):
+        try:
+            if os.name == 'nt':
+                os.startfile(file_path)
+            elif os.name == 'posix':
+                import subprocess
+                subprocess.Popen(['xdg-open', file_path])
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open file: {e}")

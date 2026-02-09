@@ -74,6 +74,9 @@ def execute_run_crew(self):
                 "--output-dir", os.path.join(self.model.current_crew_path, "output")
             ]
             
+            if self.debug_var.get():
+                cmd.append("--debug")
+            
             process = subprocess.Popen(
                 cmd, 
                 stdout=subprocess.PIPE, 
@@ -168,4 +171,32 @@ def refresh_data(self):
     self.task_widgets.clear()
     
     self.auto_load()
-    messagebox.showinfo("Refreshed", "Data reloaded from disk.")
+
+_cached_tools_info = None
+
+def get_tools_info():
+    """Fetch available tools from the registry and cache them."""
+    global _cached_tools_info
+    if _cached_tools_info is not None:
+        return _cached_tools_info
+        
+    try:
+        # Suppress the Pydantic warning if possible
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, message=".*Valid config keys have changed in V2.*")
+            
+            # Explicitly add root to path if not there
+            import sys
+            root_path = os.getcwd()
+            if root_path not in sys.path:
+                sys.path.insert(0, root_path)
+                
+            from script.tools_registry import get_available_tools
+            _cached_tools_info = get_available_tools()
+            return _cached_tools_info
+    except Exception as e:
+        import traceback
+        print(f"CRITICAL ERROR fetching tools: {e}")
+        traceback.print_exc()
+        return {"total_tools": 0, "available_tools": []}

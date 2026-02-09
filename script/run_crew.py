@@ -67,6 +67,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 
 # Derived URL
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL") or f"http://{OLLAMA_SERVER}:{OLLAMA_PORT}"
+os.environ["OLLAMA_API_BASE"] = OLLAMA_BASE_URL
 
 # Initialize LLM with Ollama configuration
 ollama_llm = LLM(
@@ -77,64 +78,131 @@ ollama_llm = LLM(
 )
 
 def parse_crew_md(file_path, task_input_content):
-    with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-
-    # Parse Crew Title
-    title_match = re.search(r'^# Crew Team: (.*)', content, re.MULTILINE)
-    crew_title = title_match.group(1).strip() if title_match else "Unnamed Crew"
-
-    # Initialize configuration defaults
-    crew_architecture = "sequential"
-    crew_supervisor_agent_name = None
-
-    # Parse Configuration section
-    config_section_match = re.search(r'## Configuration(.*?)(## Agents|$)', content, re.DOTALL)
-    if config_section_match:
-        config_content = config_section_match.group(1)
-        arch_match = re.search(r'- Architecture: (.*)', config_content)
-        if arch_match:
-            crew_architecture = arch_match.group(1).strip().lower()
+    def parse_markdown_fields(markdown_block, is_config=False):
+        parsed_data = {}
         
-        supervisor_match = re.search(r'- Supervisor Agent: (.*)', config_content)
-        if supervisor_match:
-            sup_name = supervisor_match.group(1).strip()
-            if sup_name.lower() != 'none': # 'None' indicates no supervisor
-                crew_supervisor_agent_name = sup_name
+        # Enhanced regex patterns for better flexibility
+        if is_config:
+            # Pattern for config fields: "- Key: value" or "- **Key**: value"
+            field_patterns = [
+                r"^\s*-\s*\*\*(?P<key>[^:]+?)\*\*\s*:(?P<value>.*?)(?=\n\s*-\s*(?:\*\*[^:]+?\*\*|[^:]+?):|\n\s*##[^#]|\Z)",
+                r"^\s*-\s*(?P<key>[^:]+?)\s*:(?P<value>.*?)(?=\n\s*-\s*[^:]+?:|\n\s*##[^#]|\Z)"
+            ]
+        else:
+            # Pattern for agents/tasks: "- **Key**: value" (most common)
+            field_patterns = [
+                r"^\s*-\s*\*\*(?P<key>[^:]+?)\*\*\s*:(?P<value>.*?)(?=\n\s*-\s*\*\*[^:]+?\*\*\s*:|\n\s*###|\Z)",
+                # Fallback for simpler format
+                r"^\s*-\s*(?P<key>[^:]+?)\s*:(?P<value>.*?)(?=\n\s*-\s*[^:]+?:|\n\s*###|\Z)"
+            ]
+        
+        # Try each pattern until we find matches
+        for pattern in field_patterns:
+            for match in re.finditer(pattern, markdown_block, re.DOTALL | re.IGNORECASE | re.MULTILINE):
+                key = match.group("key").strip()
+                value = match.group("value").strip()
+                parsed_data[key] = value
+            if parsed_data:  # If we found matches with this pattern, stop
+                break
+                
+        return parsed_data
     
-    # Split into Agents and Tasks sections
-    agents_section = re.search(r'## Agents(.*?)(## Tasks|$)', content, re.DOTALL)
-    tasks_section = re.search(r'## Tasks(.*)', content, re.DOTALL)
+    def validate_crew_structure(content):
+        """Validate Crew.md structure and return detailed error messages"""
+        errors = []
+        
+        # Check for required sections
+        if not re.search(r'^# Crew Team:', content, re.MULTILINE):
+            errors.append("Missing or malformed crew title (expected: '# Crew Team: [Name]')")
+        
+        config_section = re.search(r'## Configuration(.*?)(## Agents|$)', content, re.DOTALL)
+        if not config_section:
+            errors.append("Missing '## Configuration' section")
+        else:
+            config_fields = parse_markdown_fields(config_section.group(1), is_config=True)
+            if "Architecture" not in config_fields:
+                errors.append("Missing 'Architecture' in Configuration section")
+        
+        agents_section = re.search(r'## Agents(.*?)(## Tasks|$)', content, re.DOTALL)
+        if not agents_section:
+            errors.append("Missing '## Agents' section")
+        else:
+            agent_blocks = re.findall(r'### (.*?)\n(.*?)(?=### |$)', agents_section.group(1), re.DOTALL)
+            if not agent_blocks:
+                errors.append("No agents found in '## Agents' section")
+        
+        tasks_section = re.search(r'## Tasks(.*)', content, re.DOTALL)
+        if not tasks_section:
+            errors.append("Missing '## Tasks' section")
+        else:
+            task_blocks = re.findall(r'### (.*?)\n(.*?)(?=### |$)', tasks_section.group(1), re.DOTALL)
+            if not task_blocks:
+                errors.append("No tasks found in '## Tasks' section")
+        
+        return errors
 
-    agents = {}
-    if agents_section:
-        agent_blocks = re.findall(r'### (.*?)\n(.*?)(?=### |$)', agents_section.group(1), re.DOTALL)
-        for name, details in agent_blocks:
-            name = name.strip()
-            role = re.search(r'- \*\*Role\*\*: (.*)', details)
-            goal = re.search(r'- \*\*Goal\*\*: (.*)', details)
-            backstory = re.search(r'- \*\*Backstory\*\*: (.*)', details)
-            custom_model = re.search(r'- \*\*Model\*\*: (.*)', details)
-            
-            # Determine which LLM to use
-            if custom_model:
-                model_name = custom_model.group(1).strip()
-                agent_llm = LLM(
-                    model=f"ollama/{model_name}",
-                    base_url=OLLAMA_BASE_URL,
-                    timeout=300,
-                    max_retries=3
-                )
-                print(f"Agent {name} using custom model: {model_name}")
-            else:
-                agent_llm = ollama_llm # Default from config
-            
-            # Check if this agent has tools (Tool Agent)
-            tools_match = re.search(r'- \*\*Tools\*\*: (.*)', details)
-            agent_tools = []
-            
-            if tools_match:
-                tools_string = tools_match.group(1).strip()
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Validate Crew.md structure before parsing
+        validation_errors = validate_crew_structure(content)
+        if validation_errors:
+            error_msg = "Crew.md validation failed:\n" + "\n".join(f"  - {error}" for error in validation_errors)
+            print(error_msg)
+            logging.error(f"Crew.md validation failed: {validation_errors}")
+            return None, {}, [], "sequential", None
+
+        # Parse Crew Title
+        title_match = re.search(r'^# Crew Team: (.*)', content, re.MULTILINE)
+        crew_title = title_match.group(1).strip() if title_match else "Unnamed Crew"
+
+        # Initialize configuration defaults
+        crew_architecture = "sequential"
+        crew_supervisor_agent_name = None
+
+        # Parse Configuration section
+        config_section_match = re.search(r'## Configuration(.*?)(## Agents|$)', content, re.DOTALL)
+        if config_section_match:
+            config_content = config_section_match.group(1)
+            config_fields = parse_markdown_fields(config_content, is_config=True)
+            crew_architecture = config_fields.get("Architecture", "sequential").lower()
+            crew_supervisor_agent_name = config_fields.get("Supervisor Agent")
+            if crew_supervisor_agent_name and crew_supervisor_agent_name.lower() == 'none':
+                crew_supervisor_agent_name = None
+        
+        # Split into Agents and Tasks sections
+        agents_section = re.search(r'## Agents(.*?)(## Tasks|$)', content, re.DOTALL)
+        tasks_section = re.search(r'## Tasks(.*)', content, re.DOTALL)
+
+        agents = {}
+        if agents_section:
+            agent_blocks = re.findall(r'### (.*?)\n(.*?)(?=### |$)', agents_section.group(1), re.DOTALL)
+            for name, details in agent_blocks:
+                name = name.strip()
+                agent_fields = parse_markdown_fields(details)
+                
+                # Determine which LLM to use
+                custom_model_name = agent_fields.get("Model")
+                if custom_model_name:
+                    # Standardize model name - ensure it has ollama/ prefix if missing
+                    if not custom_model_name.startswith("ollama/"):
+                        custom_model_name = f"ollama/{custom_model_name}"
+                    
+                    agent_llm = LLM(
+                        model=custom_model_name,
+                        base_url=OLLAMA_BASE_URL,
+                        timeout=300,
+                        max_retries=3
+                    )
+                    print(f"Agent {name} using custom model: {custom_model_name}")
+                else:
+                    agent_llm = ollama_llm # Default from config
+                
+                # Check if this agent has tools (Tool Agent)
+                tools_string = agent_fields.get("Tools", "")
+                agent_tools = []
+                
                 if tools_string:
                     # Load tools from tools registry
                     available_tools = get_tool_agent_tools()
@@ -151,111 +219,119 @@ def parse_crew_md(file_path, task_input_content):
                         print(f"  ⚠️ No tools loaded for agent '{name}' - requested tools not available")
                 else:
                     print(f"  ℹ️ No tools specified for agent '{name}'")
-            
-            agents[name] = Agent(
-                role=role.group(1).strip() if role else "",
-                goal=goal.group(1).strip() if goal else "",
-                backstory=backstory.group(1).strip() if backstory else "",
-                llm=agent_llm,
-                tools=agent_tools,  # Add tools here
-                verbose=True,
-                allow_delegation=False
-            )
-
-    tasks_data = []
-    if tasks_section:
-        task_blocks = re.findall(r'### (.*?)\n(.*?)(?=### |$)', tasks_section.group(1), re.DOTALL)
-        for task_header, details in task_blocks:
-            task_header = task_header.strip()
-            # Extract custom output file if specified in [Output: filename.md]
-            output_file_match = re.search(r'\[Output:\s*(.*?)\]', task_header)
-            custom_output_file = output_file_match.group(1).strip() if output_file_match else None
-            # Clean task name for internal logic
-            task_name = re.sub(r'\[Output:.*?\]', '', task_header).strip()
-
-            description = re.search(r'- \*\*Description\*\*: (.*)', details)
-            expected_output = re.search(r'- \*\*Expected Output\*\*: (.*)', details)
-            agent_name = re.search(r'- \*\*Agent\*\*: (.*)', details)
-            
-            agent_inst = agents.get(agent_name.group(1).strip()) if agent_name else None
-            
-            if agent_inst:
-                desc_text = description.group(1).strip() if description else ""
                 
-                # Injection 1: {task_input} from Task.md
-                if "{task_input}" in desc_text:
-                    desc_text = desc_text.replace("{task_input}", task_input_content)
-                elif task_input_content:
-                    # Only prepend if no explicit placeholder AND Task.md is not empty
-                    desc_text = f"Context from Task.md:\n{task_input_content}\n\nTask Description: {desc_text}"
+                agents[name] = Agent(
+                    role=agent_fields.get("Role", ""),
+                    goal=agent_fields.get("Goal", ""),
+                    backstory=agent_fields.get("Backstory", ""),
+                    llm=agent_llm,
+                    tools=agent_tools,  # Add tools here
+                    verbose=True,
+                    allow_delegation=False
+                )
 
-                # Injection 2: Dynamic [[filename]] support
-                file_placeholders = re.findall(r'\[\[(.*?)\]\]', desc_text)
-                crew_dir = os.path.dirname(os.path.abspath(file_path))
-                crew_input_dir = os.path.join(crew_dir, "input")
+        tasks_data = []
+        if tasks_section:
+            task_blocks = re.findall(r'### (.*?)\n(.*?)(?=### |$)', tasks_section.group(1), re.DOTALL)
+            for task_header, details in task_blocks:
+                task_header = task_header.strip()
+                # Extract custom output file if specified in [Output: filename.md]
+                output_file_match = re.search(r'\[Output:\s*(.*?)\]', task_header)
+                custom_output_file = output_file_match.group(1).strip() if output_file_match else None
+                # Clean task name for internal logic
+                task_name = re.sub(r'\[Output:.*?\]', '', task_header).strip()
+
+                task_fields = parse_markdown_fields(details)
                 
-                for f_name in file_placeholders:
-                    f_name = f_name.strip()
-                    # Look in 3 places: 
-                    # 1. Crew's input/ folder
-                    # 2. Global input/ folder
-                    # 3. Project root
-                    crew_specific_path = os.path.join(crew_input_dir, f_name)
-                    # If f_name starts with 'input/', also try without 'input/' prefix for crew folder
-                    if f_name.startswith("input/") or f_name.startswith("input\\"):
-                        f_name_short = f_name[6:]
-                        crew_specific_path_alt = os.path.join(crew_input_dir, f_name_short)
-                    else:
-                        crew_specific_path_alt = None
-
-                    input_path = os.path.join(INPUT_DIR, f_name)
-                    root_path = os.path.join(PROJECT_ROOT, f_name)
+                agent_name_for_task = task_fields.get("Agent")
+                agent_inst = agents.get(agent_name_for_task) if agent_name_for_task else None
+                
+                if agent_inst:
+                    desc_text = task_fields.get("Description", "")
                     
-                    file_path_resolved = None
-                    if os.path.exists(crew_specific_path):
-                        file_path_resolved = crew_specific_path
-                    elif crew_specific_path_alt and os.path.exists(crew_specific_path_alt):
-                        file_path_resolved = crew_specific_path_alt
-                    elif os.path.exists(input_path):
-                        file_path_resolved = input_path
-                    elif os.path.exists(root_path):
-                        file_path_resolved = root_path
+                    # Injection 1: {task_input} from Task.md
+                    if "{task_input}" in desc_text:
+                        desc_text = desc_text.replace("{task_input}", task_input_content)
+                    elif task_input_content:
+                        # Only prepend if no explicit placeholder AND Task.md is not empty
+                        desc_text = f"Context from Task.md:\n{task_input_content}\n\nTask Description: {desc_text}"
+
+                    # Injection 2: Dynamic [[filename]] support
+                    file_placeholders = re.findall(r'\[\[(.*?)\]\]', desc_text)
+                    crew_dir = os.path.dirname(os.path.abspath(file_path))
+                    crew_input_dir = os.path.join(crew_dir, "input")
                     
-                    if file_path_resolved:
-                        with open(file_path_resolved, 'r', encoding='utf-8') as f:
-                            f_content = f.read()
+                    for f_name in file_placeholders:
+                        f_name = f_name.strip()
+                        # Look in 3 places: 
+                        # 1. Crew's input/ folder
+                        # 2. Global input/ folder
+                        # 3. Project root
+                        crew_specific_path = os.path.join(crew_input_dir, f_name)
+                        # If f_name starts with 'input/', also try without 'input/' prefix for crew folder
+                        if f_name.startswith("input/") or f_name.startswith("input\\"):
+                            f_name_short = f_name[6:]
+                            crew_specific_path_alt = os.path.join(crew_input_dir, f_name_short)
+                        else:
+                            crew_specific_path_alt = None
+
+                        input_path = os.path.join(INPUT_DIR, f_name)
+                        root_path = os.path.join(PROJECT_ROOT, f_name)
                         
-                        # Apply sampling if the file is large
-                        if len(f_content) > 50000:
-                            print(f"Sampling large file: {f_name}")
-                            chunk = 15000
-                            f_content = (
-                                f"[WARNING: Content of {f_name} has been sampled due to its large size ({len(f_content)} chars). "
-                                f"Significant portions of the document have been omitted. "
-                                f"If the analysis requires specific sections not shown below, please request them individually.]\n\n"
-                                f"--- START OF FILE ---\n{f_content[:chunk]}\n\n"
-                                f"--- MIDDLE OF FILE ---\n{f_content[len(f_content)//2 - chunk//2 : len(f_content)//2 + chunk//2]}\n\n"
-                                f"--- END OF FILE ---\n{f_content[-chunk:]}"
-                            )
+                        file_path_resolved = None
+                        if os.path.exists(crew_specific_path):
+                            file_path_resolved = crew_specific_path
+                        elif crew_specific_path_alt and os.path.exists(crew_specific_path_alt):
+                            file_path_resolved = crew_specific_path_alt
+                        elif os.path.exists(input_path):
+                            file_path_resolved = input_path
+                        elif os.path.exists(root_path):
+                            file_path_resolved = root_path
                         
-                        desc_text = desc_text.replace(f"[[{f_name}]]", f_content)
-                        print(f"Injected content from {file_path_resolved}")
-                    else:
-                        print(f"Warning: File [[{f_name}]] not found in crew input/, global input/ or project root.")
+                        if file_path_resolved:
+                            with open(file_path_resolved, 'r', encoding='utf-8') as f:
+                                f_content = f.read()
+                            
+                            # Apply sampling if the file is large
+                            if len(f_content) > 50000:
+                                print(f"Sampling large file: {f_name}")
+                                chunk = 15000
+                                f_content = (
+                                    f"[WARNING: Content of {f_name} has been sampled due to its large size ({len(f_content)} chars). "
+                                    f"Significant portions of the document have been omitted. "
+                                    f"If the analysis requires specific sections not shown below, please request them individually.]\n\n"
+                                    f"--- START OF FILE ---\n{f_content[:chunk]}\n\n"
+                                    f"--- MIDDLE OF FILE ---\n{f_content[len(f_content)//2 - chunk//2 : len(f_content)//2 + chunk//2]}\n\n"
+                                    f"--- END OF FILE ---\n{f_content[-chunk:]}"
+                                )
+                            
+                            desc_text = desc_text.replace(f"[[{f_name}]]", f_content)
+                            print(f"Injected content from {file_path_resolved}")
+                        else:
+                            print(f"Warning: File [[{f_name}]] not found in crew input/, global input/ or project root.")
 
-                tasks_data.append({
-                    "name": task_name,
-                    "custom_output": custom_output_file,
-                    "task": Task(
-                        description=desc_text,
-                        expected_output=expected_output.group(1).strip() if expected_output else "",
-                        agent=agent_inst
-                    )
-                })
+                    tasks_data.append({
+                        "name": task_name,
+                        "custom_output": custom_output_file,
+                        "task": Task(
+                            description=desc_text,
+                            expected_output=task_fields.get("Expected Output", ""),
+                            agent=agent_inst
+                        )
+                    })
 
-    return crew_title, agents, tasks_data, crew_architecture, crew_supervisor_agent_name
+        return crew_title, agents, tasks_data, crew_architecture, crew_supervisor_agent_name
 
-def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False):
+    except FileNotFoundError:
+        print(f"Error: Crew.md file not found at {file_path}")
+        logging.error(f"Crew.md file not found: {file_path}")
+        return None, {}, [], "sequential", None
+    except Exception as e:
+        print(f"Error parsing Crew.md: {str(e)}")
+        logging.error(f"Error parsing Crew.md: {str(e)}", exc_info=True)
+        return None, {}, [], "sequential", None
+
+def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False, debug=False):
     global OUTPUT_DIR
     
     # If output_dir is provided via CLI, use it. 
@@ -268,7 +344,8 @@ def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False):
         
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.environ["CREW_OUTPUT_DIR"] = OUTPUT_DIR
-    setup_logging(OUTPUT_DIR)
+    if debug:
+        setup_logging(OUTPUT_DIR)
 
     try:
         logging.info(f"Loading crew from: {crew_file}")
@@ -282,6 +359,12 @@ def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False):
                 task_input_content = f.read()
         
         title, agents_dict, tasks_data, architecture, supervisor_agent_name = parse_crew_md(crew_file, task_input_content)
+        
+        # Check if parsing failed
+        if title is None:
+            print("Failed to parse Crew.md. Please check the validation errors above.")
+            return
+        
         agent_list = list(agents_dict.values())
         
         # Inject Web Search Tools if enabled
@@ -386,7 +469,7 @@ def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False):
             print(f"    Manager Agent: {manager_agent.role}")
         
         crew = Crew(
-            agents=agent_list,
+            agents=[a for a in agent_list if a != manager_agent] if manager_agent else agent_list,
             tasks=[td["task"] for td in tasks_data],
             process=crew_process,
             manager_agent=manager_agent if manager_agent else None, # Pass manager_agent only if hierarchical
@@ -445,6 +528,7 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir", help="Directory for output files", default=None)
     
     parser.add_argument("--web-search", action="store_true", help="Enable web search for all agents")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     
     args = parser.parse_args()
 
@@ -453,4 +537,4 @@ if __name__ == "__main__":
     crew_file = args.crew_file if args.crew_file else os.path.join(default_crew_path, 'Crew.md')
     task_file = args.task_file if args.task_file else os.path.join(default_crew_path, 'Task.md')
     
-    run_crew(crew_file, task_file, args.output_dir, args.web_search)
+    run_crew(crew_file, task_file, args.output_dir, args.web_search, args.debug)

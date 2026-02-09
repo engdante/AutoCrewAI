@@ -5,10 +5,10 @@ from tkinter import ttk, messagebox
 import threading
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from .gui_models import CrewModel
-from .gui_widgets import add_context_menu, create_scrolled_text
+from .gui_widgets import add_context_menu, create_scrolled_text, ToolSelector
 from .gui_dialogs import open_new_crew_dialog, open_rename_crew_dialog, open_settings, open_generate_dialog
-from .gui_file_handlers import add_input_files, remove_input_files, open_input_folder, refresh_input_files, copy_files_to_input
-from .gui_helpers import get_python_exe, execute_run_crew, fetch_ollama_models, update_all_model_dropdowns, refresh_data
+from .gui_file_handlers import add_input_files, remove_input_files, open_input_folder, refresh_input_files, copy_files_to_input, open_input_file
+from .gui_helpers import get_python_exe, execute_run_crew, fetch_ollama_models, update_all_model_dropdowns, refresh_data, get_tools_info
 
 class CrewAIGUI:
     def __init__(self, root):
@@ -29,6 +29,7 @@ class CrewAIGUI:
         self.agent_widgets = []
         self.task_widgets = []
         self.ollama_models = []
+        self.debug_var = tk.BooleanVar(value=False)
         
         # Bind dialog methods
         self.open_new_crew_dialog = lambda: open_new_crew_dialog(self.root, self)
@@ -44,6 +45,7 @@ class CrewAIGUI:
         self.open_input_folder = lambda: open_input_folder(self)
         self.refresh_input_files = lambda: refresh_input_files(self)
         self.copy_files_to_input = lambda file_paths: copy_files_to_input(self, file_paths)
+        self.open_input_file = lambda: open_input_file(self)
 
         self.create_widgets()
         
@@ -84,8 +86,22 @@ class CrewAIGUI:
         self.settings_btn = ttk.Button(toolbar, text="Settings", command=self.open_settings)
         self.settings_btn.pack(side="left", padx=5)
 
+        # Debug Checkbox
+        self.debug_check = ttk.Checkbutton(toolbar, text="Debug", variable=self.debug_var)
+        self.debug_check.pack(side="left", padx=10)
+
         # Run Crew Button (Right Aligned)
         ttk.Button(toolbar, text="▶ Run Crew", command=self.execute_run_crew).pack(side="right", padx=5)
+
+        # Crew Info Area (Description & Architecture)
+        self.info_frame = ttk.Frame(self.main_container, padding=(20, 5))
+        self.info_frame.pack(side="top", fill="x")
+        
+        self.desc_label = ttk.Label(self.info_frame, text="", font=("Segoe UI", 10, "italic"), foreground="#555")
+        self.desc_label.pack(side="left")
+        
+        self.arch_label = ttk.Label(self.info_frame, text="", font=("Segoe UI", 9, "bold"))
+        self.arch_label.pack(side="right")
 
         # Scrollable area
         self.canvas_frame = ttk.Frame(self.main_container)
@@ -168,9 +184,10 @@ class CrewAIGUI:
         input_btn_frame.pack(fill="x", padx=10, pady=5)
         
         ttk.Button(input_btn_frame, text="+ Add", width=8, command=self.add_input_files).pack(side="left", padx=(0, 2))
+        ttk.Button(input_btn_frame, text="📄 Open", width=8, command=self.open_input_file).pack(side="left", padx=2)
         ttk.Button(input_btn_frame, text="🗑 Del", width=8, command=self.remove_input_files).pack(side="left", padx=2)
         ttk.Button(input_btn_frame, text="📂 Open Folder", command=self.open_input_folder).pack(side="left", padx=2)
-        ttk.Button(input_btn_frame, text="🔄", width=3, command=self.refresh_input_files).pack(side="left", padx=2)
+        ttk.Button(input_btn_frame, text="🔄 Refresh", command=self.refresh_input_files).pack(side="left", padx=2)
 
         # Input Listbox
         self.files_listbox = tk.Listbox(input_frame, height=8, font=("Consolas", 9), selectmode=tk.EXTENDED)
@@ -179,6 +196,9 @@ class CrewAIGUI:
         
         self.files_listbox.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=10)
         input_scrollbar.pack(side="right", fill="y", padx=(0, 10), pady=10)
+        
+        # Bind double click to open file
+        self.files_listbox.bind("<Double-Button-1>", lambda e: self.open_input_file())
 
         # --- RIGHT COLUMN: OUTPUT FILES ---
         output_frame = ttk.LabelFrame(files_main_frame, text="Output Files", style="Section.TLabelframe")
@@ -204,17 +224,34 @@ class CrewAIGUI:
         self.output_files_listbox.bind("<Double-Button-1>", lambda e: self.open_output_file())
 
         # User Task Section
-        ttk.Label(self.scrollable_content, text="User Task (Task.md)", style="Header.TLabel").pack(anchor="w", pady=(20, 10))
-        self.user_task_text_frame = ttk.Frame(self.scrollable_content)
-        self.user_task_text_frame.pack(fill="x", pady=(0, 30))
+        user_task_header_frame = ttk.Frame(self.scrollable_content)
+        user_task_header_frame.pack(fill="x", pady=(20, 0))
+        user_task_header_frame.columnconfigure(0, weight=3)
+        user_task_header_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(user_task_header_frame, text="User Task (Task.md)", style="Header.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(user_task_header_frame, text="Tools").grid(row=0, column=1, sticky="w", padx=10)
+        
+        content_frame = ttk.Frame(self.scrollable_content)
+        content_frame.pack(fill="x", pady=(5, 30))
+        content_frame.columnconfigure(0, weight=3)
+        content_frame.columnconfigure(1, weight=1)
+
+        self.user_task_text_frame = ttk.Frame(content_frame)
+        self.user_task_text_frame.grid(row=0, column=0, sticky="nsew")
         
         self.user_task_text = tk.Text(self.user_task_text_frame, height=12, font=("Consolas", 11), padx=10, pady=10, undo=True)
         self.user_task_scrollbar = ttk.Scrollbar(self.user_task_text_frame, orient="vertical", command=self.user_task_text.yview)
         self.user_task_text.configure(yscrollcommand=self.user_task_scrollbar.set)
         
-        self.user_task_text.pack(side="left", fill="x", expand=True)
+        self.user_task_text.pack(side="left", fill="both", expand=True)
         self.user_task_scrollbar.pack(side="right", fill="y")
         add_context_menu(self.user_task_text)
+
+        # Tool Selector for User Task
+        tools_info = get_tools_info()
+        self.tool_selector = ToolSelector(content_frame, self.user_task_text, tools_info)
+        self.tool_selector.grid(row=0, column=1, sticky="nsew", padx=10)
 
         # Status Bar for Monitoring
         self.status_bar = ttk.Frame(self.root, relief="sunken", padding=(10, 2))
@@ -346,6 +383,13 @@ class CrewAIGUI:
 
         self.model.load_data()
         
+        # Update Info Labels
+        self.desc_label.config(text=self.model.description)
+        arch_text = f"Architecture: {self.model.architecture}"
+        if self.model.supervisor_agent != "None":
+            arch_text += f" | Supervisor: {self.model.supervisor_agent}"
+        self.arch_label.config(text=arch_text)
+
         # Populate Agents
         if self.model.agents:
             for agent in self.model.agents:
@@ -364,6 +408,9 @@ class CrewAIGUI:
         user_task = self.model.load_task()
         self.user_task_text.delete("1.0", tk.END)
         self.user_task_text.insert("1.0", user_task)
+        
+        # Set Debug Var
+        self.debug_var.set(self.model.debug_enabled)
         
         self.update_agent_dropdowns()
         
@@ -562,8 +609,12 @@ class CrewAIGUI:
             
         user_task_content = self.user_task_text.get("1.0", tk.END).strip()
         
+        # Update model debug state before saving
+        self.model.debug_enabled = self.debug_var.get()
+
         success = self.model.save_data(agents_data, tasks_data, user_task_content)
         if success:
+            self.refresh_data()
             messagebox.showinfo("Success", "Saved Crew.md and Task.md successfully!")
         else:
             messagebox.showerror("Error", "Failed to save files. Check console for details.")

@@ -4,11 +4,19 @@ Contains essential tools for file operations, web search, and project navigation
 """
 
 import os
+import warnings
 from typing import Type, Optional
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 from crewai_tools import FileReadTool, DirectoryReadTool
 from langchain_community.tools import BraveSearch
+
+# Suppress Pydantic V2 compatibility warnings
+warnings.filterwarnings("ignore", category=UserWarning, module='pydantic')
+try:
+    from annas_archive_tool import AnnasArchiveTool
+except (ImportError, ModuleNotFoundError):
+    from script.annas_archive_tool import AnnasArchiveTool
 
 class BraveSearchInput(BaseModel):
     """Input schema for BraveSearchTool."""
@@ -126,6 +134,9 @@ def get_tool_agent_tools():
     
     # Advanced file intelligence tool
     tools.append(FileIntelligenceTool())
+    
+    # Anna's Archive tool
+    tools.append(AnnasArchiveTool())
     
     return tools
 

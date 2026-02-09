@@ -4,3 +4,4 @@ venv/
 __pycache__
 script/__pycache__
 crews/
+*.log

@@ -4,9 +4,10 @@ import threading
 import os
 import subprocess
 import requests
+import json
 from .gui_models import CrewModel
-from .gui_helpers import get_python_exe, fetch_ollama_models
-from .gui_widgets import add_context_menu
+from .gui_helpers import get_python_exe, fetch_ollama_models, get_tools_info
+from .gui_widgets import add_context_menu, ToolSelector
 
 def open_new_crew_dialog(root, app):
     dialog = tk.Toplevel(root)
@@ -179,14 +180,22 @@ def open_generate_dialog(root, app):
 
     # Task Description
     ttk.Label(config_frame, text="Describe task for the Crew:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+    ttk.Label(config_frame, text="Tools").grid(row=0, column=4, sticky="w", padx=5, pady=5)
+
     task_text_frame = ttk.Frame(config_frame)
     task_text_frame.grid(row=1, column=0, columnspan=4, sticky="ew", padx=5, pady=2)
-    task_text = tk.Text(task_text_frame, height=3, font=("Segoe UI", 10), wrap="word")
+    task_text = tk.Text(task_text_frame, height=9, font=("Segoe UI", 10), wrap="word")
     task_scrollbar = ttk.Scrollbar(task_text_frame, orient="vertical", command=task_text.yview)
     task_text.configure(yscrollcommand=task_scrollbar.set)
     task_text.pack(side="left", fill="both", expand=True)
     task_scrollbar.pack(side="right", fill="y")
     add_context_menu(task_text)
+
+    # Tool Selector for Generate Dialog
+    tools_info = get_tools_info()
+    tool_selector = ToolSelector(config_frame, task_text, tools_info)
+    tool_selector.grid(row=1, column=4, sticky="nsew", padx=5, pady=2)
+    config_frame.columnconfigure(4, weight=1)
 
     # Architecture Selection
     ttk.Label(config_frame, text="Architecture:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
@@ -218,6 +227,11 @@ def open_generate_dialog(root, app):
     sup_model_combo = ttk.Combobox(config_frame, textvariable=sup_model_var, values=app.ollama_models, width=20)
     sup_model_combo.grid(row=3, column=3, sticky="ew", padx=5, pady=5)
 
+    # Debug Checkbox
+    debug_enabled = tk.IntVar(value=0)
+    debug_check = ttk.Checkbutton(config_frame, text="Generate Debug Log", variable=debug_enabled)
+    debug_check.grid(row=4, column=0, sticky="w", padx=5, pady=5)
+
     # Refresh Button
     def update_both_combos():
         fetch_ollama_models(app, model_combo, None, None)
@@ -231,7 +245,7 @@ def open_generate_dialog(root, app):
     ttk.Label(gen_win, text="Feedback / Refinement (for Refine button):").pack(side="top", anchor="w", padx=20, pady=(10, 5))
     feedback_frame = ttk.Frame(gen_win)
     feedback_frame.pack(side="top", fill="x", padx=20, pady=5)
-    feedback_text = tk.Text(feedback_frame, height=3, font=("Segoe UI", 10), wrap="word")
+    feedback_text = tk.Text(feedback_frame, height=9, font=("Segoe UI", 10), wrap="word")
     feedback_scrollbar = ttk.Scrollbar(feedback_frame, orient="vertical", command=feedback_text.yview)
     feedback_text.configure(yscrollcommand=feedback_scrollbar.set)
     feedback_text.pack(side="left", fill="x", expand=True)
@@ -260,6 +274,57 @@ def open_generate_dialog(root, app):
     btn_frame = ttk.Frame(gen_win)
     btn_frame.pack(side="bottom", fill="x", padx=20, pady=20)
 
+    gen_crew_file = os.path.join(app.model.current_crew_path, "GenCrew.md")
+
+    def save_gen_crew():
+        data = {
+            "task_description": task_text.get("1.0", tk.END).strip(),
+            "architecture": arch_var.get(),
+            "supervisor_enabled": supervisor_enabled.get(),
+            "web_search_enabled": web_search_enabled.get(),
+            "model": model_name_var.get().strip(),
+            "supervisor_model": sup_model_var.get().strip(),
+            "debug_enabled": debug_enabled.get(),
+            "feedback": feedback_text.get("1.0", tk.END).strip()
+        }
+        try:
+            with open(gen_crew_file, 'w', encoding='utf-8') as f:
+                f.write("<!-- GenCrew JSON Data DO NOT EDIT -->\n")
+                json.dump(data, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error saving GenCrew.md: {e}")
+
+    def load_gen_crew():
+        if os.path.exists(gen_crew_file):
+            try:
+                with open(gen_crew_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    if not lines: return
+                    # Skip the first comment line
+                    json_str = "".join(lines[1:])
+                    data = json.loads(json_str)
+                    
+                if "task_description" in data:
+                    task_text.delete("1.0", tk.END)
+                    task_text.insert("1.0", data["task_description"])
+                if "architecture" in data:
+                    arch_var.set(data["architecture"])
+                if "supervisor_enabled" in data:
+                    supervisor_enabled.set(data["supervisor_enabled"])
+                if "web_search_enabled" in data:
+                    web_search_enabled.set(data["web_search_enabled"])
+                if "model" in data:
+                    model_name_var.set(data["model"])
+                if "supervisor_model" in data:
+                    sup_model_var.set(data["supervisor_model"])
+                if "feedback" in data:
+                    feedback_text.delete("1.0", tk.END)
+                    feedback_text.insert("1.0", data["feedback"])
+                if "debug_enabled" in data:
+                    debug_enabled.set(data["debug_enabled"])
+            except Exception as e:
+                print(f"Error loading GenCrew.md: {e}")
+
     def run_generation():
         description = task_text.get("1.0", tk.END).strip()
         sel_model = model_name_var.get().strip()
@@ -267,10 +332,13 @@ def open_generate_dialog(root, app):
         sup_enabled = supervisor_enabled.get()
         sup_model = sup_model_var.get().strip()
         web_search_enabled_flag = web_search_enabled.get()
+        debug_flag = debug_enabled.get()
 
         if not description:
             messagebox.showwarning("Warning", "Please enter a task description.")
             return
+
+        save_gen_crew()
 
         gen_btn.configure(state="disabled")
         refine_btn.configure(state="disabled")
@@ -280,8 +348,12 @@ def open_generate_dialog(root, app):
         log_text.delete("1.0", tk.END)
 
         def update_log(line):
-            log_text.insert(tk.END, line)
-            log_text.see(tk.END)
+            if not gen_win.winfo_exists(): return
+            try:
+                log_text.insert(tk.END, line)
+                log_text.see(tk.END)
+            except tk.TclError:
+                pass
 
         def thread_target():
             try:
@@ -294,6 +366,7 @@ def open_generate_dialog(root, app):
                     cmd.append("--supervisor")
                     if sup_model: cmd.extend(["--supervisor-model", sup_model])
                 if web_search_enabled_flag: cmd.append("--web-search")
+                if debug_flag: cmd.append("--debug")
 
                 process = subprocess.Popen(
                     cmd,
@@ -318,23 +391,31 @@ def open_generate_dialog(root, app):
                 gen_win.after(0, lambda: on_error(str(e)))
 
         def on_complete(rc):
-            progress.stop()
-            progress.pack_forget()
-            gen_btn.configure(state="normal")
-            refine_btn.configure(state="normal")
-            if rc == 0:
-                status_lbl.config(text="Generation Complete!", foreground="green")
-                messagebox.showinfo("Success", "Crew generated successfully!")
-                app.refresh_data()
-            else:
-                status_lbl.config(text=f"Error Occurred (Code {rc})", foreground="red")
+            if not gen_win.winfo_exists(): return
+            try:
+                progress.stop()
+                progress.pack_forget()
+                gen_btn.configure(state="normal")
+                refine_btn.configure(state="normal")
+                if rc == 0:
+                    status_lbl.config(text="Generation Complete!", foreground="green")
+                    messagebox.showinfo("Success", "Crew generated successfully!")
+                    app.refresh_data()
+                else:
+                    status_lbl.config(text=f"Error Occurred (Code {rc})", foreground="red")
+            except tk.TclError:
+                pass
 
         def on_error(msg):
-            progress.stop()
-            progress.pack_forget()
-            gen_btn.configure(state="normal")
-            refine_btn.configure(state="normal")
-            log_text.insert(tk.END, f"\nCRITICAL ERROR: {msg}\n")
+            if not gen_win.winfo_exists(): return
+            try:
+                progress.stop()
+                progress.pack_forget()
+                gen_btn.configure(state="normal")
+                refine_btn.configure(state="normal")
+                log_text.insert(tk.END, f"\nCRITICAL ERROR: {msg}\n")
+            except tk.TclError:
+                pass
 
         threading.Thread(target=thread_target, daemon=True).start()
 
@@ -345,10 +426,13 @@ def open_generate_dialog(root, app):
         sup_enabled = supervisor_enabled.get()
         sup_model = sup_model_var.get().strip()
         web_search_enabled_flag = web_search_enabled.get()
+        debug_flag = debug_enabled.get()
 
         if not feedback:
             messagebox.showwarning("Warning", "Please enter feedback/refinement instructions.")
             return
+
+        save_gen_crew()
 
         crew_file = app.model.crew_file
         task_file = app.model.task_file
@@ -388,7 +472,8 @@ create_crew(
     enable_supervisor={sup_enabled},
     enable_web_search={web_search_enabled_flag},
     supervisor_model="{esc(sup_model)}" if "{sup_model}" else None,
-    output_dir=r"{app.model.current_crew_path}"
+    output_dir=r"{app.model.current_crew_path}",
+    debug={True if debug_flag else False}
 )
 '''
 
@@ -416,27 +501,39 @@ create_crew(
                 gen_win.after(0, lambda: on_error(str(e)))
 
         def update_log(line):
-            log_text.insert(tk.END, line)
-            log_text.see(tk.END)
+            if not gen_win.winfo_exists(): return
+            try:
+                log_text.insert(tk.END, line)
+                log_text.see(tk.END)
+            except tk.TclError:
+                pass
 
         def on_complete(rc):
-            progress.stop()
-            progress.pack_forget()
-            gen_btn.configure(state="normal")
-            refine_btn.configure(state="normal")
-            if rc == 0:
-                status_lbl.config(text="Refinement Complete!", foreground="green")
-                messagebox.showinfo("Success", "Crew refined successfully!")
-                app.refresh_data()
-            else:
-                status_lbl.config(text=f"Error Occurred (Code {rc})", foreground="red")
+            if not gen_win.winfo_exists(): return
+            try:
+                progress.stop()
+                progress.pack_forget()
+                gen_btn.configure(state="normal")
+                refine_btn.configure(state="normal")
+                if rc == 0:
+                    status_lbl.config(text="Refinement Complete!", foreground="green")
+                    messagebox.showinfo("Success", "Crew refined successfully!")
+                    app.refresh_data()
+                else:
+                    status_lbl.config(text=f"Error Occurred (Code {rc})", foreground="red")
+            except tk.TclError:
+                pass
 
         def on_error(msg):
-            progress.stop()
-            progress.pack_forget()
-            gen_btn.configure(state="normal")
-            refine_btn.configure(state="normal")
-            log_text.insert(tk.END, f"\nCRITICAL ERROR: {msg}\n")
+            if not gen_win.winfo_exists(): return
+            try:
+                progress.stop()
+                progress.pack_forget()
+                gen_btn.configure(state="normal")
+                refine_btn.configure(state="normal")
+                log_text.insert(tk.END, f"\nCRITICAL ERROR: {msg}\n")
+            except tk.TclError:
+                pass
 
         threading.Thread(target=thread_target, daemon=True).start()
 
@@ -449,3 +546,5 @@ create_crew(
     
     close_btn = ttk.Button(btn_frame, text="Close", command=gen_win.destroy)
     close_btn.pack(side="right")
+
+    load_gen_crew()

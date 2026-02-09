@@ -2,12 +2,14 @@ import logging
 import os
 import sys
 import warnings
+import json
 
 # Suppress Pydantic V2 compatibility warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='pydantic')
 # Suppress CrewAI Tracing/Telemetry messages
 os.environ["CREWAI_TRACING_ENABLED"] = "false"
 os.environ["OTEL_SDK_DISABLED"] = "true"
+os.environ["LITELLM_LOGGING"] = "false"
 
 # Fix Windows console encoding for emojis
 if sys.platform == "win32":
@@ -32,6 +34,7 @@ OLLAMA_PORT = os.getenv("OLLAMA_PORT", "11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 # Derived URL
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL") or f"http://{OLLAMA_SERVER}:{OLLAMA_PORT}"
+os.environ["OLLAMA_API_BASE"] = OLLAMA_BASE_URL
 
 # Initialize LLM with Ollama configuration
 ollama_llm = LLM(
@@ -44,6 +47,7 @@ def setup_logging(output_dir):
     if not output_dir:
         output_dir = os.getcwd()
     
+    output_dir = os.path.abspath(output_dir)
     os.makedirs(output_dir, exist_ok=True)
     log_file = os.path.join(output_dir, "create_debug.log")
     
@@ -57,7 +61,8 @@ def setup_logging(output_dir):
         filename=log_file,
         level=logging.DEBUG,
         format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
-        encoding='utf-8'
+        encoding='utf-8',
+        force=True
     )
     logging.info("--- Crew Generation Started ---")
     print(f"--- [DEBUG] Logging details to: {log_file} ---")
@@ -72,6 +77,175 @@ def clean_markdown(content):
              content = content.replace("```", "").strip() # Aggressive cleanup at end
     return content.strip()
 
+def validate_crew_md(crew_md_content):
+    """Validate generated Crew.md against strict schema"""
+    errors = []
+    warnings = []
+    
+    # Check structure
+    if not crew_md_content.startswith("# Crew Team:"):
+        errors.append("Crew.md must start with '# Crew Team: [Name]'")
+    
+    # Check required sections
+    required_sections = ["## Configuration", "## Agents", "## Tasks"]
+    for section in required_sections:
+        if section not in crew_md_content:
+            errors.append(f"Missing required section: {section}")
+    
+    # Check Configuration section
+    config_match = re.search(r'## Configuration(.*?)(## Agents|$)', crew_md_content, re.DOTALL)
+    if config_match:
+        config_content = config_match.group(1)
+        config_fields = re.findall(r'^\s*-\s*(?P<key>[^:]+?)\s*:(?P<value>.*?)(?=\n\s*-\s*[^:]+?:|\n\s*##[^#]|\Z)', config_content, re.MULTILINE)
+        config_dict = {k.strip(): v.strip() for k, v in config_fields}
+        
+        if "Architecture" not in config_dict:
+            errors.append("Configuration section must contain 'Architecture' field")
+        else:
+            valid_architectures = ["sequential", "hierarchical"]
+            if config_dict["Architecture"].lower() not in valid_architectures:
+                errors.append(f"Architecture must be one of: {', '.join(valid_architectures)}")
+        
+        if "Supervisor Agent" not in config_dict:
+            errors.append("Configuration section must contain 'Supervisor Agent' field")
+    
+    # Check Agents section
+    agents_match = re.search(r'## Agents(.*?)(## Tasks|$)', crew_md_content, re.DOTALL)
+    if agents_match:
+        agents_content = agents_match.group(1)
+        agent_blocks = re.findall(r'### (.*?)\n(.*?)(?=### |$)', agents_content, re.DOTALL)
+        
+        if not agent_blocks:
+            errors.append("No agents found in Agents section")
+        else:
+            agent_names = []
+            for i, (name, details) in enumerate(agent_blocks):
+                agent_names.append(name.strip())
+                
+                # Check required fields for each agent
+                required_fields = ["Role", "Goal", "Backstory"]
+                for field in required_fields:
+                    if f"**{field}**" not in details:
+                        errors.append(f"Agent {name} missing required field: **{field}**")
+                
+                # Check model format
+                model_match = re.search(r'\*\*Model\*\*:\s*(.+)', details)
+                if model_match:
+                    model_name = model_match.group(1).strip()
+                    if not model_name.startswith("ollama/") and model_name != "Default":
+                        warnings.append(f"Agent {name} model '{model_name}' should use 'ollama/' prefix")
+            
+            # Check for duplicate agent names
+            if len(agent_names) != len(set(agent_names)):
+                errors.append("Duplicate agent names found")
+    
+    # Check Tasks section
+    tasks_match = re.search(r'## Tasks(.*)', crew_md_content, re.DOTALL)
+    if tasks_match:
+        tasks_content = tasks_match.group(1)
+        task_blocks = re.findall(r'### (.*?)\n(.*?)(?=### |$)', tasks_content, re.DOTALL)
+        
+        if not task_blocks:
+            errors.append("No tasks found in Tasks section")
+        else:
+            task_names = []
+            for i, (header, details) in enumerate(task_blocks):
+                task_names.append(header.strip())
+                
+                # Extract task name (remove [Output: filename.md] if present)
+                task_name = re.sub(r'\[Output:.*?\]', '', header).strip()
+                
+                # Check required fields
+                required_fields = ["Description", "Expected Output", "Agent"]
+                for field in required_fields:
+                    if f"**{field}**" not in details:
+                        errors.append(f"Task {task_name} missing required field: **{field}**")
+                
+                # Check if agent exists
+                agent_match = re.search(r'\*\*Agent\*\*:\s*(.+)', details)
+                if agent_match:
+                    agent_name = agent_match.group(1).strip()
+                    # This check would require knowing all agent names, we'll do it later
+            
+            # Check for duplicate task names
+            if len(task_names) != len(set(task_names)):
+                errors.append("Duplicate task names found")
+    
+    # Check for forbidden content
+    forbidden_patterns = [
+        (r'```python', "Python code blocks are not allowed in Crew.md"),
+        (r'from crewai import', "Python imports are not allowed"),
+        (r'Agent\(', "Python Agent instantiation is not allowed"),
+        (r'Task\(', "Python Task instantiation is not allowed"),
+        (r'Crew\(', "Python Crew instantiation is not allowed"),
+    ]
+    
+    for pattern, message in forbidden_patterns:
+        if re.search(pattern, crew_md_content):
+            errors.append(message)
+    
+    # Check section headers format
+    forbidden_headers = re.findall(r'^### [^A-Z]', crew_md_content, re.MULTILINE)
+    if forbidden_headers:
+        errors.append("Section headers after '###' should start with capital letter")
+    
+    return errors, warnings
+
+def auto_correct_crew_md(crew_md_content):
+    """Auto-correct common issues in Crew.md"""
+    corrections = []
+    
+    # 1. Ensure Configuration section exists and has all required fields
+    if "## Configuration" not in crew_md_content:
+        # Try to find the title line and insert after it
+        title_match = re.search(r'^(# Crew Team:.*)', crew_md_content, re.MULTILINE)
+        if title_match:
+            title_line = title_match.group(1)
+            config_block = "\n\n## Configuration\n- Architecture: sequential\n- Supervisor Agent: None"
+            crew_md_content = crew_md_content.replace(title_line, title_line + config_block)
+            corrections.append("Added missing Configuration section after title")
+        else:
+            # Fallback: Prepend if no title found
+            config_block = "# Crew Team: New Crew\n\n## Configuration\n- Architecture: sequential\n- Supervisor Agent: None\n\n"
+            crew_md_content = config_block + crew_md_content
+            corrections.append("Added missing Title and Configuration section at beginning")
+    else:
+        # Configuration section exists, check for mandatory fields
+        config_match = re.search(r'## Configuration(.*?)(## Agents|## Tasks|$)', crew_md_content, re.DOTALL)
+        if config_match:
+            config_text = config_match.group(1)
+            new_config_text = config_text
+            
+            if "Architecture" not in config_text:
+                new_config_text += "\n- Architecture: sequential"
+                corrections.append("Added missing 'Architecture' to Configuration")
+            
+            if "Supervisor Agent" not in config_text:
+                new_config_text += "\n- Supervisor Agent: None"
+                corrections.append("Added missing 'Supervisor Agent' to Configuration")
+            
+            if new_config_text != config_text:
+                crew_md_content = crew_md_content.replace(config_text, new_config_text)
+
+    # 2. Fix model format - add ollama/ prefix if missing, but avoid double prefixing
+    model_pattern = r'(\*\*Model\*\*:\s*)(?!ollama/|Default)([^\n]+)'
+    if re.search(model_pattern, crew_md_content):
+        crew_md_content = re.sub(model_pattern, r'\1ollama/\2', crew_md_content)
+        corrections.append("Added 'ollama/' prefix to model names")
+    
+    # 3. Fix section headers that don't start with capital
+    header_pattern = r'^### ([a-z])'
+    if re.search(header_pattern, crew_md_content, re.MULTILINE):
+        def capitalize_header(match):
+            return f"### {match.group(1).upper()}"
+        crew_md_content = re.sub(header_pattern, capitalize_header, crew_md_content, flags=re.MULTILINE)
+        corrections.append("Fixed section header capitalization")
+    
+    # 4. Ensure proper spacing after headers/sections
+    crew_md_content = re.sub(r'(##? [^\n]+)\n+(?!#)', r'\1\n\n', crew_md_content)
+    
+    return crew_md_content, corrections
+
 def create_crew(
     task_description, 
     model_name=None, 
@@ -81,12 +255,16 @@ def create_crew(
     enable_supervisor=False,    # Enable Supervisor agent with veto power
     enable_web_search=False,    # Enable web search for agents
     supervisor_model=None,      # Optional: different model for Supervisor (e.g., stronger model)
-    output_dir=None             # Optional: directory to save output files
+    output_dir=None,            # Optional: directory to save output files
+    preview_mode=False,          # Preview mode without saving
+    auto_correct=True,           # Enable auto-correction of common issues
+    debug=False                 # Enable debug logging
 ):
     """
-    Enhanced Crew Creation with Architecture Options
+    Enhanced Crew Creation with Architecture Options and Strict Validation
     """
-    setup_logging(output_dir)
+    if debug:
+        setup_logging(output_dir)
 
     try:
         logging.info(f"Task: {task_description}")
@@ -367,6 +545,53 @@ def create_crew(
         crew_md_clean = clean_markdown(crew_md_raw)
         task_md_clean = clean_markdown(task_md_raw)
 
+        # Apply auto-correction if enabled
+        corrections = []
+        if auto_correct:
+            crew_md_clean, corrections = auto_correct_crew_md(crew_md_clean)
+            if corrections:
+                print("\n--- AUTO-CORRECTIONS APPLIED ---")
+                for correction in corrections:
+                    print(f"  - {correction}")
+
+        # Validate generated Crew.md
+        validation_errors, validation_warnings = validate_crew_md(crew_md_clean)
+        
+        if validation_errors:
+            print(f"\n--- CREW.MD VALIDATION FAILED ---")
+            for error in validation_errors:
+                print(f"  ❌ {error}")
+            logging.error(f"Crew.md validation failed: {validation_errors}")
+            
+            if not preview_mode:
+                print("\nProceeding with generation despite validation errors...")
+                logging.warning("Proceeding with generation despite validation errors.")
+        
+        if validation_warnings:
+            print(f"\n--- CREW.MD VALIDATION WARNINGS ---")
+            for warning in validation_warnings:
+                print(f"  ⚠️  {warning}")
+
+        if preview_mode:
+            print("\n--- PREVIEW MODE ---")
+            print("Generated Crew.md (first 1000 characters):")
+            print("-" * 50)
+            print(crew_md_clean[:1000] + "..." if len(crew_md_clean) > 1000 else crew_md_clean)
+            print("-" * 50)
+            
+            print("\nGenerated Task.md (first 1000 characters):")
+            print("-" * 50)
+            print(task_md_clean[:1000] + "..." if len(task_md_clean) > 1000 else task_md_clean)
+            print("-" * 50)
+            
+            if not preview_mode:
+                print("\nProceeding to save files from preview...")
+            else:
+                response = input("\nWould you like to save these files? (Y/n): ")
+                if response.lower() == 'n':
+                    print("Files not saved.")
+                    return
+
         print("\n--- Saving Configuration Files ---")
 
         # Determine output directory
@@ -397,7 +622,7 @@ def create_crew(
     except Exception as e:
         logging.critical("CRITICAL ERROR during creation:", exc_info=True)
         print(f"\n❌ FATAL ERROR: {str(e)}")
-        print(f"See {os.path.join(output_dir if output_dir else os.getcwd(), 'creation_debug.log')} for details.")
+        print(f"See {os.path.join(output_dir if output_dir else os.getcwd(), 'create_debug.log')} for details.")
         raise
 
 def build_architecture_instructions(architecture, enable_supervisor, enable_web_search, supervisor_model):
@@ -443,6 +668,7 @@ def build_architecture_instructions(architecture, enable_supervisor, enable_web_
 
 if __name__ == "__main__":
     import argparse
+    import re
     
     parser = argparse.ArgumentParser(
         description="Create CrewAI configuration with architecture options",
@@ -462,6 +688,9 @@ Examples:
       --supervisor-model llama3.1:70b \\
       --web-search \\
       --model llama3.1:8b
+  
+  # Preview mode without saving
+  python create_crew.py "Test task" --preview
         """
     )
     
@@ -507,6 +736,24 @@ Examples:
         help="Directory to save generated files"
     )
     
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Preview mode without saving files"
+    )
+    
+    parser.add_argument(
+        "--no-auto-correct",
+        action="store_true",
+        help="Disable auto-correction of common issues"
+    )
+    
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging"
+    )
+    
     args = parser.parse_args()
     
     create_crew(
@@ -516,5 +763,8 @@ Examples:
         enable_supervisor=args.supervisor,
         enable_web_search=args.web_search,
         supervisor_model=args.supervisor_model,
-        output_dir=args.output_dir
+        output_dir=args.output_dir,
+        preview_mode=args.preview,
+        auto_correct=not args.no_auto_correct,
+        debug=args.debug
     )

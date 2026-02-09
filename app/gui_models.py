@@ -7,6 +7,10 @@ class CrewModel:
     def __init__(self):
         self.agents = []
         self.tasks = []
+        self.description = ""
+        self.architecture = "sequential"
+        self.supervisor_agent = "None"
+        self.debug_enabled = False
         self.crews_dir = "crews"
         self.current_crew_name = "default"
         self.current_crew_path = os.path.join(self.crews_dir, "default")
@@ -62,7 +66,7 @@ class CrewModel:
                 "folder": folder_name
             }
             with open(os.path.join(folder_path, "crew.json"), 'w', encoding='utf-8') as f:
-                json.dump(info, f, indent=4)
+                json.dump(info, f, indent=4, ensure_ascii=False)
                 
             # Create empty placeholder files
             with open(os.path.join(folder_path, "Crew.md"), 'w', encoding='utf-8') as f:
@@ -99,7 +103,7 @@ class CrewModel:
                 data['folder'] = new_folder_name
                 
                 with open(json_path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=4)
+                    json.dump(data, f, indent=4, ensure_ascii=False)
             
             # Update internal state if this was active
             if self.current_crew_name == current_name:
@@ -112,6 +116,22 @@ class CrewModel:
     def load_data(self):
         self.agents = []
         self.tasks = []
+        # Reset description and architecture fields before loading new data
+        self.description = ""
+        self.architecture = "sequential"
+        self.supervisor_agent = "None"
+        self.debug_enabled = False
+        
+        # Load crew info from json if exists
+        json_path = os.path.join(self.current_crew_path, "crew.json")
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    info = json.load(f)
+                    self.description = info.get('description', "")
+            except Exception as e:
+                print(f"Error loading crew.json for {self.current_crew_name}: {e}")
+
         self.load_crew()
         self.load_task()
 
@@ -119,9 +139,40 @@ class CrewModel:
         if not os.path.exists(self.crew_file):
             return
 
+        def parse_markdown_fields(markdown_block, is_config=False):
+            parsed_data = {}
+            if is_config:
+                # For config, fields are like "- Architecture: value"
+                # Pattern: start of line, optional whitespace, hyphen, key, colon, value.
+                # Value ends at the start of next config field, next ## section, or end of block.
+                # Lookahead for new line, optional whitespace, hyphen, any chars up to colon, OR new ## section, OR end of block
+                field_pattern = r"^\s*-\s*(?P<key>[^:]+?)\s*:(?P<value>.*?)(?=\n\s*-\s*[^:]+?:|\n\s*##[^#]|\Z)"
+            else:
+                # For agents/tasks, fields are like "- **Key**: value"
+                # Pattern: start of line, optional whitespace, hyphen, bold key, colon, value.
+                # Value ends at the start of next agent/task field, next ### section, or end of block.
+                # Lookahead for new line, optional whitespace, hyphen, optional whitespace, two asterisks, any chars up to colon, OR new ### section, OR end of block
+                field_pattern = r"^\s*-\s*\*\*(?P<key>[^:]+?)\*\*\s*:(?P<value>.*?)(?=\n\s*-\s*\*\*[^:]+?\*\*|\n\s*###|\Z)"
+            
+            # Use re.DOTALL to allow '.' to match newlines, and re.MULTILINE for '^' to match line beginnings.
+            for match in re.finditer(field_pattern, markdown_block, re.DOTALL | re.IGNORECASE | re.MULTILINE):
+                key = match.group("key").strip()
+                value = match.group("value").strip()
+                parsed_data[key] = value
+            return parsed_data
+
         try:
             with open(self.crew_file, 'r', encoding='utf-8') as f:
                 content = f.read()
+
+            # Parse Configuration
+            config_match = re.search(r"## Configuration(.*?)(## Agents|$)", content, re.DOTALL)
+            if config_match:
+                config_str = config_match.group(1)
+                config_fields = parse_markdown_fields(config_str, is_config=True)
+                self.architecture = config_fields.get("Architecture", "sequential")
+                self.supervisor_agent = config_fields.get("Supervisor Agent", "None")
+                self.debug_enabled = config_fields.get("Debug", "False").lower() == "true"
 
             # Parse Agents
             agents_part_match = re.search(r"## Agents(.*?)(## Tasks|$)", content, re.DOTALL)
@@ -131,18 +182,15 @@ class CrewModel:
                 for m in agent_matches:
                     name = m.group(1).strip()
                     details = m.group(2)
+                    agent_fields = parse_markdown_fields(details)
                     
-                    def find_d(p, t):
-                        m = re.search(p, t)
-                        return m.group(1).strip() if m else ""
-
                     self.agents.append({
                         'name': name,
-                        'role': find_d(r"\*\*\s*Role\s*\*\*: (.*)", details),
-                        'goal': find_d(r"\*\*\s*Goal\s*\*\*: (.*)", details),
-                        'backstory': find_d(r"\*\*\s*Backstory\s*\*\*: (.*)", details),
-                        'model': find_d(r"\*\*\s*Model\s*\*\*: (.*)", details),
-                        'web_search': "brave_search" in find_d(r"\*\*\s*Tools\s*\*\*: (.*)", details)
+                        'role': agent_fields.get("Role", ""),
+                        'goal': agent_fields.get("Goal", ""),
+                        'backstory': agent_fields.get("Backstory", ""),
+                        'model': agent_fields.get("Model", ""),
+                        'web_search': "brave_search" in agent_fields.get("Tools", "")
                     })
 
             # Parse Tasks
@@ -160,16 +208,13 @@ class CrewModel:
                         name = re.sub(r"\[Output: .*?\]", "", title_line).strip()
                     
                     details = m.group(2)
-                    def find_d(p, t):
-                        m = re.search(p, t)
-                        return m.group(1).strip() if m else ""
-
+                    task_fields = parse_markdown_fields(details)
                     self.tasks.append({
                         'name': name,
                         'output_file': output_file,
-                        'description': find_d(r"\*\*\s*Description\s*\*\*: (.*)", details),
-                        'expected_output': find_d(r"\*\*\s*Expected Output\s*\*\*: (.*)", details),
-                        'agent': find_d(r"\*\*\s*Agent\s*\*\*: (.*)", details)
+                        'description': task_fields.get("Description", ""),
+                        'expected_output': task_fields.get("Expected Output", ""),
+                        'agent': task_fields.get("Agent", "")
                     })
         except Exception as e:
             print(f"Error loading crew file: {e}")
@@ -189,8 +234,34 @@ class CrewModel:
 
     def save_data(self, agents_data, tasks_data, user_task_content):
         try:
-            # Crew
-            crew_output = f"# Crew Team: {self.current_crew_name}\n\n## Agents\n\n"
+            # Update internal model state
+            self.agents = agents_data
+            self.tasks = tasks_data
+
+            # 1. Save crew.json (contains description and name)
+            json_path = os.path.join(self.current_crew_path, "crew.json")
+            info = {
+                "name": self.current_crew_name,  # Or a separate display name if implemented
+                "description": self.description,
+                "folder": self.current_crew_name
+            }
+            # Try to preserve existing crew.json extra data if any
+            if os.path.exists(json_path):
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        info.update(json.load(f))
+                    info['description'] = self.description
+                except: pass
+
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(info, f, indent=4, ensure_ascii=False)
+
+            # 2. Save Crew.md
+            crew_output = f"# Crew Team: {self.current_crew_name}\n\n## Configuration\n"
+            crew_output += f"- Architecture: {self.architecture}\n"
+            crew_output += f"- Supervisor Agent: {self.supervisor_agent}\n"
+            crew_output += f"- Debug: {self.debug_enabled}\n\n"
+            crew_output += "## Agents\n\n"
             for a in agents_data:
                 if not a['name']: continue
                 crew_output += f"### {a['name']}\n"
@@ -214,7 +285,7 @@ class CrewModel:
             with open(self.crew_file, 'w', encoding='utf-8') as f:
                 f.write(crew_output)
 
-            # Task
+            # 3. Save Task.md
             with open(self.task_file, 'w', encoding='utf-8') as f:
                 f.write("# User Task for Agents\n\n" + user_task_content + "\n")
             
