@@ -1,3 +1,4 @@
+crewai
 crewai-tools
 python-dotenv
 requests
@@ -11,3 +12,7 @@ langchain-chroma
 rank_bm25
 sentence-transformers
 unstructured
+mobi
+pymupdf
+pymupdf-fonts
+playwright>=1.40.0

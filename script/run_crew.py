@@ -468,13 +468,20 @@ def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False, deb
         if manager_agent:
             print(f"    Manager Agent: {manager_agent.role}")
         
-        crew = Crew(
-            agents=[a for a in agent_list if a != manager_agent] if manager_agent else agent_list,
-            tasks=[td["task"] for td in tasks_data],
-            process=crew_process,
-            manager_agent=manager_agent if manager_agent else None, # Pass manager_agent only if hierarchical
-            verbose=True
-        )
+        crew_params = {
+            "agents": [a for a in agent_list if a != manager_agent] if manager_agent else agent_list,
+            "tasks": [td["task"] for td in tasks_data],
+            "process": crew_process,
+            "verbose": True
+        }
+
+        if manager_agent:
+            crew_params["manager_agent"] = manager_agent
+        elif crew_process == Process.hierarchical:
+            print(f"--- [INFO] Hierarchical process detected without specific manager agent. Using default LLM for manager. ---")
+            crew_params["manager_llm"] = ollama_llm
+
+        crew = Crew(**crew_params)
 
         logging.info("Kickoff starting...")
         result = crew.kickoff()

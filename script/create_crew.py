@@ -448,6 +448,30 @@ def create_crew(
             write_crew_description += "   - For agents that need to search the internet (identified in the design):\n"
             write_crew_description += "   - Add line: **Tools**: brave_search\n"
         
+        # Load all available tools from registry for intelligent assignment
+        available_tool_info = []
+        try:
+            from tools_registry import get_available_tools
+            tool_info = get_available_tools()
+            available_tool_info = tool_info.get('available_tools', [])
+            logging.info(f"Loaded {len(available_tool_info)} tools for assignment")
+        except Exception as e:
+            logging.warning(f"Could not load tools info: {e}")
+
+        if available_tool_info:
+            write_crew_description += "\n\n9. TOOL ASSIGNMENT:\n"
+            write_crew_description += "   Available tools in the system:\n"
+            for tool in available_tool_info:
+                write_crew_description += f"     - **{tool['name']}**: {tool['description']}\n"
+            write_crew_description += "\n   Instructions:\n"
+            write_crew_description += "   - Analyze the task description to identify which agents need which tools\n"
+            write_crew_description += "   - Add this line to agents that need tools: **Tools**: tool_name1, tool_name2\n"
+            write_crew_description += "   - Examples:\n"
+            write_crew_description += "     * Agent downloading books → **Tools**: annas_archive_tool\n"
+            write_crew_description += "     * Agent querying book content → **Tools**: ask_book_tool\n"
+            write_crew_description += "     * Agent researching online → **Tools**: brave_search\n"
+            write_crew_description += "   - Only assign tools that the agent actually needs for its tasks\n"
+        
         if crew_context:
             write_crew_description += f"\nMODIFICATION MODE: Modify the existing Crew configuration below based on user feedback:\n"
             write_crew_description += f"```markdown\n{crew_context}\n```\n"
@@ -479,6 +503,14 @@ def create_crew(
             review_crew_description += "\n9. VERIFY WEB SEARCH:\n"
             review_crew_description += "   - Ensure agents like Researchers have **Tools**: brave_search\n"
             review_crew_description += "   - Ensure the tool name is exactly 'brave_search'\n"
+        
+        # Add tool validation if tools are available
+        if available_tool_info:
+            review_crew_description += "\n\n10. VERIFY TOOL ASSIGNMENT:\n"
+            review_crew_description += "   - Check if agents that need tools have **Tools**: field\n"
+            review_crew_description += "   - Verify tool names match exactly (case-sensitive)\n"
+            review_crew_description += f"   - Valid tool names: {', '.join([t['name'] for t in available_tool_info])}\n"
+            review_crew_description += "   - Ensure tools are only assigned to agents that need them\n"
         
         review_crew_description += f"\nRefine it to be perfect."
         

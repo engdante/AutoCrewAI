@@ -190,7 +190,7 @@ class CrewModel:
                         'goal': agent_fields.get("Goal", ""),
                         'backstory': agent_fields.get("Backstory", ""),
                         'model': agent_fields.get("Model", ""),
-                        'web_search': "brave_search" in agent_fields.get("Tools", "")
+                        'tools': [t.strip() for t in agent_fields.get("Tools", "").split(',') if t.strip()]
                     })
 
             # Parse Tasks
@@ -269,8 +269,8 @@ class CrewModel:
                 crew_output += f"- **Goal**: {a['goal']}\n"
                 crew_output += f"- **Backstory**: {a['backstory']}\n"
                 crew_output += f"- **Model**: {a['model']}\n"
-                if a.get('web_search'):
-                    crew_output += f"- **Tools**: brave_search\n"
+                if a.get('tools'):
+                    crew_output += f"- **Tools**: {', '.join(a['tools'])}\n"
                 crew_output += "\n"
             
             crew_output += "## Tasks\n\n"

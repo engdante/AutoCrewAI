@@ -481,15 +481,18 @@ class CrewAIGUI:
                                command=lambda e=model_entry: self.fetch_ollama_models(e))
         refresh_btn.pack(side="right", padx=(5, 0))
 
-        # Web Search Checkbox
-        ws_var = tk.BooleanVar(value=data.get('web_search', False) if data else False)
-        ws_check = ttk.Checkbutton(model_frame, text="Web Search", variable=ws_var)
-        ws_check.pack(side="right", padx=(10, 5))
-
         add_context_menu(model_entry)
 
+        # Tools
+        ttk.Label(frame, text="Tools:").grid(row=5, column=0, sticky="e", padx=(5, 10), pady=1)
+        tools_entry = ttk.Entry(frame)
+        tools_entry.grid(row=5, column=1, sticky="ew", padx=(0, 10), pady=1)
+        if data and data.get('tools'):
+            tools_entry.insert(0, ', '.join(data['tools']))
+        add_context_menu(tools_entry)
+
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=5, column=0, columnspan=2, sticky="e", pady=2)
+        btn_frame.grid(row=6, column=0, columnspan=2, sticky="e", pady=2)
         
         agent_item = {
             'frame': frame,
@@ -498,7 +501,7 @@ class CrewAIGUI:
             'goal': goal_entry,
             'backstory': backstory_text,
             'model': model_entry,
-            'web_search_var': ws_var
+            'tools': tools_entry
         }
         
         ttk.Button(btn_frame, text="Remove Agent", command=lambda: self.remove_agent(agent_item)).pack(padx=10)
@@ -594,7 +597,7 @@ class CrewAIGUI:
                 'goal': a['goal'].get().strip(),
                 'backstory': a['backstory'].get('1.0', tk.END).strip(),
                 'model': a['model'].get().strip(),
-                'web_search': a['web_search_var'].get()
+                'tools': [t.strip() for t in a['tools'].get().split(',') if t.strip()]
             })
             
         tasks_data = []

@@ -7,12 +7,14 @@
 - **Goal**: [Specific Goal]
 - **Backstory**: [Detailed Backstory]
 - **Model**: [Model Name, e.g., ministral-3:8b]
+- **Tools**: [tool_name1, tool_name2] (optional, only if agent needs tools)
 
 ### [Agent Name 2]
 - **Role**: [Role Name]
 - **Goal**: [Specific Goal]
 - **Backstory**: [Detailed Backstory]
 - **Model**: [Model Name]
+- **Tools**: [tool_name1, tool_name2] (optional, only if agent needs tools)
 
 ## Tasks
 
