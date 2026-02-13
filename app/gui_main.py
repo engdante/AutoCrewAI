@@ -4,6 +4,8 @@ import requests
 from tkinter import ttk, messagebox
 import threading
 from tkinterdnd2 import DND_FILES, TkinterDnD
+from dotenv import load_dotenv, find_dotenv # Import dotenv
+
 from .gui_models import CrewModel
 from .gui_widgets import add_context_menu, create_scrolled_text, ToolSelector
 from .gui_dialogs import open_new_crew_dialog, open_rename_crew_dialog, open_settings, open_generate_dialog
@@ -15,6 +17,9 @@ class CrewAIGUI:
         self.root = root
         self.root.title("CrewAI Config Manager")
         self.root.geometry("1100x900")
+        
+        # Load environment variables for the GUI process
+        load_dotenv(find_dotenv())
         
         self.model = CrewModel()
         

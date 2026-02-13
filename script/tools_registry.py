@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field
 from crewai_tools import FileReadTool, DirectoryReadTool
 from langchain_community.tools import BraveSearch
 
+try:
+    from annas_config import project_root # Import project_root
+except ModuleNotFoundError:
+    from script.annas_config import project_root
+
 # Suppress Pydantic V2 compatibility warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='pydantic')
 try:
@@ -112,7 +117,7 @@ class FileWriteTool(BaseTool):
         except Exception as e:
             return f"Error writing to file {filename}: {str(e)}"
 
-def get_tool_agent_tools():
+def get_tool_agent_tools(crew_name: Optional[str] = None, download_dir: Optional[str] = None, browser_mode: str = 'headless'):
     """
     Returns a list of tools for the Tool Agent.
     These tools provide comprehensive file operations, web search, and project navigation capabilities.
@@ -138,10 +143,29 @@ def get_tool_agent_tools():
     tools.append(FileIntelligenceTool())
     
     # Anna's Archive tool
-    tools.append(AnnasArchiveTool())
+    try:
+        tools.append(AnnasArchiveTool(browser_mode=browser_mode, crew_name=crew_name))
+    except Exception as e:
+        print(f"Warning: Could not initialize AnnasArchiveTool: {e}")
     
     # RAG Book Tool
-    tools.append(AskBookTool())
+    try:
+        # Determine RAG persist directory dynamically
+        rag_db_path = ""
+        if crew_name:
+            rag_db_path = os.path.join(project_root, "crews", crew_name, "rag_db")
+            print(f"[INFO] ToolsRegistry: Using crew-specific RAG DB: {rag_db_path}")
+        elif download_dir:
+            rag_db_path = os.path.join(download_dir, "rag_db")
+            print(f"[INFO] ToolsRegistry: Using download_dir RAG DB: {rag_db_path}")
+        else:
+            rag_db_path = os.path.join(project_root, "crews", "shared", "rag_db")
+            print(f"[INFO] ToolsRegistry: Using shared RAG DB: {rag_db_path}")
+        
+        # Initialize with the upgraded AskBookTool
+        tools.append(AskBookTool(persist_directory=rag_db_path))
+    except Exception as e:
+        print(f"Warning: Could not initialize AskBookTool in registry: {e}")
     
     return tools
 

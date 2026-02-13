@@ -1,0 +1,33 @@
+Искам да направим annas_archive_tool специфичен и точен за търсене в annas-archive
+
+1. Търсене - до сега това се случва правилно - сайта + /search?q=/ + Име на книгата, автори и др.
+2. Анализ на резултатите, резултатите седят в 
+
+body > main > div > form > div > div.min-w-\[0\].w-full > div.bg-white.px-2.rounded-tr-lg.rounded-b-lg.shadow-lg > div.mb-2.sm\:px-3 > div или ако е по лесно 
+
+<div class="js-aarecord-list-outer"> 
+
+в този div има други div със линкове към намереното съдържание ,например 
+                
+        <div class="flex  pt-3 pb-3 border-b last:border-b-0 border-gray-100">
+        <a href="/md5/aa36d586be0817511840a7a9b0d4726b" class="custom-a block mr-2 sm:mr-4 hover:opacity-80">
+          <div id="list_cover_aarecord_id__md5:aa36d586be0817511840a7a9b0d4726b" class="w-20 h-[7.5rem] sm:w-24 sm:h-36 rounded shadow relative overflow-hidden text-left">
+
+3. Анализ на резултатите и оценяването им, кой резултат е най-точен за нашата книга. Записване на трите най-точни ликове. Няма нужда да търсим повече, ако първия линк не работи ще отворим дирекно втория линк, без да се връщаме на стъпка 1 и 2.
+
+4. Търсене на Link за сваляне - след като сме отворили линк пдобоен на това https://bg.annas-archive.li/md5/aa36d586be0817511840a7a9b0d4726b трябва да намерим линк колйто е за бавно сваляне. 
+
+в страницата има #md5-panel-downloads > div:nth-child(2) > ul  - това са линкове за бавно сваляне копирай първите три линка, това ще са линковете който ще ползваме за да свалим книгата.
+
+5. Изтегляне, след като се натисне линка за бавно сваляне има обикновено проверка на браузъра, след това изчаване в продължение на няколко секунди, това обикновено скрипта който има се справя.
+
+6. Самото изтегляне в станицата която обикновено изглежда така https://bg.annas-archive.li/slow_download/aa36d586be0817511840a7a9b0d4726b/0/0 има body > main > div > p:nth-child(8) > span > button този бутон изглежда така
+
+
+<span class="whitespace-nowrap"><button class="inline-block relative font-sans font-normal text-xs button bg-gray-500 hover:bg-gray-600 px-1 py-0.5 rounded-md text-white align-[2px]" onclick="if (navigator.clipboard) { navigator.clipboard.writeText('https://b4mcx2ml.net/d3/y/1770981423/10000/g3/zlib3_files/20240807/annas_archive_data__aacid__zlib3_files__20240807T221217Z--20240807T221218Z/aacid__zlib3_files__20240807T221217Z__28350547__caoTZXRRU9hwmgYNmhgdcR~/cnqBOWcH7IbcKXBpkgLGBg/The%20Divine%20Design%3A%20The%20Untold%20History%20of%20Earth%27s%20and%20--%20Lorie%20Ladd%20--%202022%20--%20Lorie%20Ladd%20--%20aa36d586be0817511840a7a9b0d4726b%20--%20Anna%E2%80%99s%20Archive.pdf').then(() =&gt; { this.setAttribute('aria-selected', 'true'); }); }" aria-selected="false"><span class="icon-[solar--clipboard-bold] [[aria-selected=true]_&amp;]:icon-[solar--clipboard-check-bold] align-[-5px] text-lg"></span> <span class="[[aria-selected=true]_&amp;]:hidden">копиране</span><span class="[[aria-selected=false]_&amp;]:hidden">копирано!</span></button><span class="bg-gray-200 pl-2 pr-1 ml-[-4px] rounded whitespace-normal break-all">https://b4mcx2ml.net/d3/y/1770981423/10000/g3/zlib3_files/20240807/annas_archive_data__aacid__zlib3_files__20240807T221217Z--20240807T221218Z/aacid__zlib3_files__20240807T221217Z__28350547__caoTZXRRU9hwmgYNmhgdcR~/cnqBOWcH7IbcKXBpkgLGBg/The%20Divine%20Design%3A%20The%20Untold%20History%20of%20Earth%27s%20and%20--%20Lorie%20Ladd%20--%202022%20--%20Lorie%20Ladd%20--%20aa36d586be0817511840a7a9b0d4726b%20--%20Anna%E2%80%99s%20Archive.pdf</span></span>
+
+в него има линк който може да се използва дурекно за SaveAs файла
+
+ Направи прост скрипт който да събере информацията която ти трябва за да стигнеш до сваляне на файла и след това с
+  тази информация може да направил скрипта annas_archive_tool конкретен и точен спрямо сайта на annas.
+

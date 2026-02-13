@@ -8,10 +8,27 @@ import sys
 import argparse
 import logging
 from typing import Optional
+from dotenv import load_dotenv, find_dotenv # Import dotenv
 
-# Import from our modules
-from annas_archive_tool import AnnasArchiveTool
-from annas_config import AnnasArchiveInput, debug_print, DEBUG_MODE, INTERACTIVE_MODE
+# Add parent directory to path if needed (for running from parent dir)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(script_dir)
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+# Import from our modules - try both import styles
+try:
+    # Try direct import first (when running from script/ directory)
+    from annas_archive_tool import AnnasArchiveTool
+    from annas_config import AnnasArchiveInput, debug_print, DEBUG_MODE, INTERACTIVE_MODE
+    from tools_registry import get_tool_agent_tools # Import get_tool_agent_tools
+except ModuleNotFoundError:
+    # Fall back to script.module import (when running from parent directory)
+    from script.annas_archive_tool import AnnasArchiveTool
+    from script.annas_config import AnnasArchiveInput, debug_print, DEBUG_MODE, INTERACTIVE_MODE
+    from script.tools_registry import get_tool_agent_tools # Import get_tool_agent_tools
 
 # Package information (moved from __init__.py)
 __version__ = "2.0.0"
@@ -101,6 +118,9 @@ Examples:
 def main():
     """Main CLI entry point."""
     try:
+        # Load environment variables from .env file
+        load_dotenv(find_dotenv())
+        
         args = parse_args()
         
         # Set debug mode
@@ -117,8 +137,43 @@ def main():
         debug_print(f"Starting CLI with args: {args}")
         print(f"[INFO] Anna's Archive Tool v{__version__} - Query: '{args.query}'")
         
-        # Create tool instance
-        tool = AnnasArchiveTool()
+        # --- Configure Ollama environment variables for LiteLLM ---
+        ollama_server = os.getenv("OLLAMA_SERVER")
+        ollama_port = os.getenv("OLLAMA_PORT")
+        ollama_model = os.getenv("OLLAMA_MODEL")
+
+        if ollama_server and ollama_port:
+            ollama_api_base = f"http://{ollama_server}:{ollama_port}"
+            os.environ["OLLAMA_API_BASE"] = ollama_api_base
+            debug_print(f"Set OLLAMA_API_BASE to: {ollama_api_base}")
+        elif os.getenv("OLLAMA_API_BASE"):
+            debug_print(f"Using OLLAMA_API_BASE from environment: {os.getenv('OLLAMA_API_BASE')}")
+        else:
+            debug_print("OLLAMA_SERVER and OLLAMA_PORT or OLLAMA_API_BASE not found in .env. LiteLLM will use its defaults (localhost:11434).")
+
+        if ollama_model:
+            os.environ["OLLAMA_MODEL"] = ollama_model
+            debug_print(f"Set OLLAMA_MODEL to: {ollama_model}")
+        else:
+            debug_print("OLLAMA_MODEL not found in .env. Using default (llama3).")
+        # --- End Ollama config ---
+
+        # Get tools with dynamic RAG persist_directory
+        tools = get_tool_agent_tools(
+            crew_name=args.crew_name,
+            download_dir=args.download_dir,
+            browser_mode=args.browser # Pass browser_mode if any tool needs it for initialization
+        )
+
+        # Find the AnnasArchiveTool from the list of tools
+        annas_archive_tool = None
+        for tool_instance in tools:
+            if tool_instance.name == "annas_archive_tool":
+                annas_archive_tool = tool_instance
+                break
+        
+        if not annas_archive_tool:
+            raise ValueError("AnnasArchiveTool not found in tools registry.")
         
         # Create input object
         input_data = AnnasArchiveInput(
@@ -132,10 +187,12 @@ def main():
         debug_print(f"Input data: {input_data}")
         
         # Run the tool
-        result = tool._run(
+        result = annas_archive_tool._run(
             query=args.query,
             download_dir=args.download_dir,
-            crew_name=args.crew_name
+            crew_name=args.crew_name,
+            filename=args.filename,
+            browser_mode=args.browser
         )
         
         print("\n" + "="*60)

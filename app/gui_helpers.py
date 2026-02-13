@@ -4,6 +4,7 @@ import requests
 import threading
 from tkinter import messagebox, ttk
 import tkinter as tk
+from dotenv import load_dotenv, find_dotenv # Import dotenv
 
 def get_python_exe():
     """Get the python executable path from environment or use default"""
@@ -63,20 +64,46 @@ def execute_run_crew(self):
 
     def run_process():
         try:
+            # Load environment variables for the subprocess
+            load_dotenv(find_dotenv())
+            
             python_exe = get_python_exe()
-            # Unbuffer output for real-time streaming
+            
+            # Arguments for run_crew.py
             cmd = [
                 python_exe, 
                 "-u", 
                 "script/run_crew.py", 
                 "--crew-file", self.model.crew_file,
                 "--task-file", self.model.task_file,
-                "--output-dir", os.path.join(self.model.current_crew_path, "output")
+                "--output-dir", os.path.join(self.model.current_crew_path, "output"),
+                "--crew-name", self.model.current_crew_name # Pass crew_name
             ]
             
+            # Determine browser mode (from settings or default)
+            browser_mode = self.model.browser_mode # Assuming model has a browser_mode attribute
+            if not browser_mode:
+                browser_mode = "headless" # Default if not set in model
+            cmd.extend(["--browser-mode", browser_mode])
+
             if self.debug_var.get():
                 cmd.append("--debug")
             
+            # Pass environment variables to the subprocess
+            # This ensures OLLAMA_API_BASE and OLLAMA_MODEL are available to run_crew.py
+            env = os.environ.copy()
+            
+            # Explicitly set OLLAMA_API_BASE if not already set or derived from .env
+            ollama_server = env.get("OLLAMA_SERVER")
+            ollama_port = env.get("OLLAMA_PORT")
+            if ollama_server and ollama_port and not env.get("OLLAMA_API_BASE"):
+                env["OLLAMA_API_BASE"] = f"http://{ollama_server}:{ollama_port}"
+            
+            # Explicitly set OLLAMA_MODEL if not already set
+            if not env.get("OLLAMA_MODEL") and self.model.ollama_model: # Assuming model has selected ollama_model
+                env["OLLAMA_MODEL"] = self.model.ollama_model
+
+
             process = subprocess.Popen(
                 cmd, 
                 stdout=subprocess.PIPE, 
@@ -84,7 +111,8 @@ def execute_run_crew(self):
                 text=True, 
                 encoding='utf-8',
                 bufsize=1,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                env=env # Pass the modified environment
             )
             
             while True:
@@ -124,6 +152,8 @@ def execute_run_crew(self):
 
 def fetch_ollama_models(self, combobox=None, server=None, port=None):
     """Fetch available models from Ollama server"""
+    # Ensure .env is loaded for this context too, if not already
+    load_dotenv(find_dotenv())
     if server is None:
         server = os.getenv("OLLAMA_SERVER", "localhost")
     if port is None:
@@ -181,6 +211,9 @@ def get_tools_info():
         return _cached_tools_info
         
     try:
+        # Load environment variables for tool initialization
+        load_dotenv(find_dotenv()) 
+        
         # Suppress the Pydantic warning if possible
         import warnings
         with warnings.catch_warnings():

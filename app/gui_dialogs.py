@@ -115,7 +115,7 @@ def open_settings(root, app):
     env_file = find_dotenv() or ".env"
     load_dotenv(env_file, override=True)
 
-    keys = ["OLLAMA_SERVER", "OLLAMA_PORT", "OLLAMA_MODEL", "OPENAI_API_KEY", "OTEL_SDK_DISABLED", "PYTHON_VENV_PATH"]
+    keys = ["OLLAMA_SERVER", "OLLAMA_PORT", "OLLAMA_MODEL", "OPENAI_API_KEY", "OTEL_SDK_DISABLED", "PYTHON_VENV_PATH", "BROWSER_MODE"]
     entries = {}
 
     container = ttk.Frame(settings_win, padding=20)
@@ -137,6 +137,11 @@ def open_settings(root, app):
             
             refresh_btn = ttk.Button(container, text="↻", width=3, command=get_models_from_gui)
             refresh_btn.grid(row=i, column=2, padx=2)
+            entries[key] = entry
+        elif key == "BROWSER_MODE":
+            entry = ttk.Combobox(container, values=['headless', 'show', 'hide'], state="readonly", width=37)
+            entry.set(val if val in ['headless', 'show', 'hide'] else 'headless')
+            entry.grid(row=i, column=1, sticky="ew", pady=5, padx=5)
             entries[key] = entry
         else:
             entry = ttk.Entry(container, width=40)

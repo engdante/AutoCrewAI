@@ -11,6 +11,7 @@ class CrewModel:
         self.architecture = "sequential"
         self.supervisor_agent = "None"
         self.debug_enabled = False
+        self.browser_mode = "headless" # New attribute for browser visibility
         self.crews_dir = "crews"
         self.current_crew_name = "default"
         self.current_crew_path = os.path.join(self.crews_dir, "default")
@@ -173,6 +174,8 @@ class CrewModel:
                 self.architecture = config_fields.get("Architecture", "sequential")
                 self.supervisor_agent = config_fields.get("Supervisor Agent", "None")
                 self.debug_enabled = config_fields.get("Debug", "False").lower() == "true"
+                self.browser_mode = config_fields.get("Browser Mode", "headless").lower()
+
 
             # Parse Agents
             agents_part_match = re.search(r"## Agents(.*?)(## Tasks|$)", content, re.DOTALL)
@@ -260,7 +263,8 @@ class CrewModel:
             crew_output = f"# Crew Team: {self.current_crew_name}\n\n## Configuration\n"
             crew_output += f"- Architecture: {self.architecture}\n"
             crew_output += f"- Supervisor Agent: {self.supervisor_agent}\n"
-            crew_output += f"- Debug: {self.debug_enabled}\n\n"
+            crew_output += f"- Debug: {self.debug_enabled}\n"
+            crew_output += f"- Browser Mode: {self.browser_mode}\n\n"
             crew_output += "## Agents\n\n"
             for a in agents_data:
                 if not a['name']: continue

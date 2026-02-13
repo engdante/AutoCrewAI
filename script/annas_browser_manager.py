@@ -1,4 +1,12 @@
 """
+
+# Dynamic path setup for imports (works from both script/ and parent directory)
+_script_dir = Path(__file__).parent.absolute()
+_parent_dir = _script_dir.parent
+if str(_script_dir) not in sys.path:
+    sys.path.insert(0, str(_script_dir))
+if str(_parent_dir) not in sys.path:
+    sys.path.insert(0, str(_parent_dir))
 Anna's Archive Tool - Browser Manager
 Handles Playwright browser initialization, domain finding, and Cloudflare bypass.
 """
@@ -10,9 +18,17 @@ import logging
 from typing import Optional
 from bs4 import BeautifulSoup
 
+import sys
+from pathlib import Path
 # Import from config
-from annas_config import logger, debug_print, DOMAINS, BASE_URL, SEARCH_URL, _working_domain
-from annas_utils import random_delay, pause_for_input
+try:
+    from annas_config import logger, debug_print, DOMAINS, BASE_URL, SEARCH_URL, _working_domain, INTERACTIVE_MODE
+except ModuleNotFoundError:
+    from script.annas_config import logger, debug_print, DOMAINS, BASE_URL, SEARCH_URL, _working_domain, INTERACTIVE_MODE
+try:
+    from annas_utils import random_delay, pause_for_input
+except ModuleNotFoundError:
+    from script.annas_utils import random_delay, pause_for_input
 
 # Try to import Playwright
 try:
@@ -71,26 +87,35 @@ class BrowserManager:
     def init_browser(self, headless: bool = False) -> None:
         """Initialize Playwright browser instance."""
         debug_print(f"init_browser: Starting with headless={headless}")
-        if self._browser is None:
-            debug_print("Creating new Playwright instance")
-            self._playwright = sync_playwright().start()
-            self._browser = self._playwright.chromium.launch(
-                headless=headless,
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                ]
-            )
-            self._context = self._browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            )
-            # Add random delay to appear more human-like
-            self._context.set_default_timeout(60000)  # 60 seconds timeout
-            self._page = self._context.new_page()
-            debug_print("Playwright browser initialized successfully")
-            print("[INFO] Playwright browser initialized")
+        
+        # If already initialized with different headless mode, close and re-init
+        if self._browser is not None:
+            # We can't easily check current headless mode from the object, 
+            # so we'll store it if we need to be perfect, but for now we just
+            # assume if it's already there and we are called again, we should check.
+            # However, usually we just want to avoid re-initializing if possible.
+            # To fix the 'headless' not working, we'll ensure we set it.
+            return
+
+        debug_print("Creating new Playwright instance")
+        self._playwright = sync_playwright().start()
+        self._browser = self._playwright.chromium.launch(
+            headless=headless,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+            ]
+        )
+        self._context = self._browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        )
+        # Add random delay to appear more human-like
+        self._context.set_default_timeout(60000)  # 60 seconds timeout
+        self._page = self._context.new_page()
+        debug_print("Playwright browser initialized successfully")
+        print("[INFO] Playwright browser initialized")
     
     def close_browser(self) -> None:
         """Close Playwright browser instance."""
@@ -111,25 +136,37 @@ class BrowserManager:
         print("[INFO] Playwright browser closed")
     
     def wait_for_cloudflare(self, page: Page, timeout: int = 30) -> bool:
-        """Wait for Cloudflare challenge to complete."""
+        """Wait for Cloudflare challenge to complete. Captures screenshot if stuck."""
         debug_print(f"wait_for_cloudflare: Starting with timeout={timeout}s")
-        print("[INFO] Waiting for Cloudflare challenge...")
+        print("[INFO] Checking for Cloudflare/DDoS protection...")
         start_time = time.time()
         
         while time.time() - start_time < timeout:
-            # Check if we're past the Cloudflare challenge
-            if "challenge" not in page.url.lower():
-                # Check for Cloudflare challenge element
-                challenge_element = page.query_selector('#challenge-running, .cf-challenge-running')
-                if not challenge_element:
-                    debug_print("Cloudflare challenge passed")
-                    print("[INFO] Cloudflare challenge passed")
-                    return True
+            # Check for Cloudflare challenge elements
+            is_blocked = page.evaluate('''() => {
+                const text = document.body.innerText.toLowerCase();
+                return text.includes('cloudflare') || 
+                       text.includes('checking your browser') || 
+                       text.includes('ddos protection') ||
+                       text.includes('verify you are human') ||
+                       !!document.querySelector('#challenge-running, .cf-challenge-running, #turnstile-wrapper');
+            }''')
             
-            time.sleep(1)
+            if not is_blocked:
+                debug_print("Cloudflare challenge not detected or passed")
+                return True
+            
+            # If we are in interactive mode and have waited a bit, ask for help
+            elapsed = time.time() - start_time
+            if INTERACTIVE_MODE and elapsed > 10:
+                print(f"\n[ALERT] Cloudflare challenge detected! Please check the browser.")
+                pause_for_input("Solve the captcha in the browser and then press ENTER...")
+                return True
+                
+            time.sleep(2)
         
-        debug_print("Cloudflare challenge timeout, continuing anyway")
-        print("[WARNING] Cloudflare challenge timeout, continuing anyway...")
+        debug_print("Cloudflare challenge timeout")
+        print("[WARNING] Could not verify Cloudflare passage.")
         return False
     
     def get_page_content(self, page: Page) -> str:
@@ -155,13 +192,6 @@ class BrowserManager:
             return ""
         
         return content
-    
-    def save_debug_page(self, content: str, filename: str) -> None:
-        """Save page content to debug file."""
-        debug_html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
-        with open(debug_html_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        debug_print(f"Page content saved to {debug_html_path}")
     
     def make_absolute_url(self, url: str) -> str:
         """Convert relative URL to absolute URL."""

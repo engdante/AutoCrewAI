@@ -14,7 +14,7 @@ from crewai.tools import BaseTool
 
 # Debug mode flag
 DEBUG_MODE = True
-INTERACTIVE_MODE = False  # Set to True for manual debugging
+INTERACTIVE_MODE = True  # Set to True for manual debugging
 
 # Setup debug log file in script/ directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -24,35 +24,18 @@ DEBUG_LOG_FILE = os.path.join(script_dir, "annas_archive_tool.log")
 # Setup logging
 def setup_logging():
     """Setup logging configuration."""
-    # Clear debug log at start
-    if os.path.exists(DEBUG_LOG_FILE):
-        try:
-            os.remove(DEBUG_LOG_FILE)
-        except Exception as e:
-            print(f"[WARNING] Could not clear debug log: {e}")
-    
-    # Clear old debug HTML files in script directory
-    debug_files = [
-        "debug_search_page.html",
-        "debug_book_page.html", 
-        "debug_slow_download_page.html",
-        "debug_mirror_page.html"
-    ]
-    for filename in debug_files:
-        path = os.path.join(script_dir, filename)
-        if os.path.exists(path):
-            try:
-                os.remove(path)
-                debug_print(f"Cleared old debug file: {filename}")
-            except Exception as e:
-                print(f"[WARNING] Could not clear debug file {filename}: {e}")
-    
     # Create logger
     logger = logging.getLogger('annas_archive_tool')
     logger.setLevel(logging.DEBUG)
     
-    # File handler
-    file_handler = logging.FileHandler(DEBUG_LOG_FILE, encoding='utf-8')
+    # Remove existing handlers to prevent duplicates, especially important for subprocesses
+    for handler in logger.handlers[:]:
+        if isinstance(handler, logging.FileHandler):
+            handler.close()
+        logger.removeHandler(handler)
+    
+    # File handler - use append mode ('a') to avoid file locking issues
+    file_handler = logging.FileHandler(DEBUG_LOG_FILE, encoding='utf-8', mode='a')
     file_handler.setLevel(logging.DEBUG)
     file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(file_formatter)
@@ -72,19 +55,19 @@ def setup_logging():
 logger = setup_logging()
 
 def debug_print(msg: str):
-    """Print and log debug message if DEBUG_MODE is enabled.
-    Logs are written to logs/annas_archive_tool.log with a timestamp for easier tracing
-    of execution flow and failures."""
+    """Print and log debug message if DEBUG_MODE is enabled."""
     if DEBUG_MODE:
         logger.debug(msg)
 
 # Input schemas
 class AnnasArchiveInput(BaseModel):
     """Input schema for AnnasArchiveTool."""
+    model_config = {"extra": "allow"} # Pydantic V2 way
     query: str = Field(..., description="The name and author of the book to search for.")
 
 class BookResult(BaseModel):
     """Represents a search result from Anna's Archive."""
+    model_config = {"extra": "allow"} # Pydantic V2 way
     title: str
     author: Optional[str] = None
     format: Optional[str] = None
@@ -92,21 +75,6 @@ class BookResult(BaseModel):
     url: str
     md5: Optional[str] = None
 
-# Tool class definition (will be imported from main module)
-class AnnasArchiveTool(BaseTool):
-    """
-    Search for books on Anna's Archive, download them, and read their content.
-    
-    Uses Playwright for reliable Cloudflare bypass.
-    Integrates with crewAI and supports RAG indexing.
-    """
-    name: str = "annas_archive_tool"
-    description: str = (
-        "Search for books on Anna's Archive, download them, and read their content. "
-        "Input: book title and optionally the author. "
-        "Returns the path of the downloaded file and a summary or snippet of its content."
-    )
-    args_schema: Type[BaseModel] = AnnasArchiveInput
 
 # IPFS Gateways for fallback downloads
 IPFS_GATEWAYS: ClassVar[List[str]] = [

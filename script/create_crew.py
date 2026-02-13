@@ -3,6 +3,7 @@ import os
 import sys
 import warnings
 import json
+import re
 
 # Suppress Pydantic V2 compatibility warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='pydantic')
@@ -191,7 +192,7 @@ def validate_crew_md(crew_md_content):
     
     return errors, warnings
 
-def auto_correct_crew_md(crew_md_content):
+def auto_correct_crew_md(crew_md_content, enable_supervisor=False):
     """Auto-correct common issues in Crew.md"""
     corrections = []
     
@@ -201,12 +202,21 @@ def auto_correct_crew_md(crew_md_content):
         title_match = re.search(r'^(# Crew Team:.*)', crew_md_content, re.MULTILINE)
         if title_match:
             title_line = title_match.group(1)
-            config_block = "\n\n## Configuration\n- Architecture: sequential\n- Supervisor Agent: None"
+            config_block = "\n\n## Configuration\n- Architecture: sequential"
+            if enable_supervisor:
+                config_block += "\n- Supervisor Agent: [Supervisor Name]"
+            else:
+                config_block += "\n- Supervisor Agent: None"
             crew_md_content = crew_md_content.replace(title_line, title_line + config_block)
             corrections.append("Added missing Configuration section after title")
         else:
             # Fallback: Prepend if no title found
-            config_block = "# Crew Team: New Crew\n\n## Configuration\n- Architecture: sequential\n- Supervisor Agent: None\n\n"
+            config_block = "# Crew Team: New Crew\n\n## Configuration\n- Architecture: sequential"
+            if enable_supervisor:
+                config_block += "\n- Supervisor Agent: [Supervisor Name]"
+            else:
+                config_block += "\n- Supervisor Agent: None"
+            config_block += "\n\n"
             crew_md_content = config_block + crew_md_content
             corrections.append("Added missing Title and Configuration section at beginning")
     else:
@@ -221,8 +231,12 @@ def auto_correct_crew_md(crew_md_content):
                 corrections.append("Added missing 'Architecture' to Configuration")
             
             if "Supervisor Agent" not in config_text:
-                new_config_text += "\n- Supervisor Agent: None"
-                corrections.append("Added missing 'Supervisor Agent' to Configuration")
+                if enable_supervisor:
+                    new_config_text += "\n- Supervisor Agent: [Supervisor Name]"
+                    corrections.append("Added missing 'Supervisor Agent' to Configuration")
+                else:
+                    new_config_text += "\n- Supervisor Agent: None"
+                    corrections.append("Added missing 'Supervisor Agent' to Configuration")
             
             if new_config_text != config_text:
                 crew_md_content = crew_md_content.replace(config_text, new_config_text)
@@ -580,7 +594,7 @@ def create_crew(
         # Apply auto-correction if enabled
         corrections = []
         if auto_correct:
-            crew_md_clean, corrections = auto_correct_crew_md(crew_md_clean)
+            crew_md_clean, corrections = auto_correct_crew_md(crew_md_clean, enable_supervisor)
             if corrections:
                 print("\n--- AUTO-CORRECTIONS APPLIED ---")
                 for correction in corrections:
@@ -700,7 +714,6 @@ def build_architecture_instructions(architecture, enable_supervisor, enable_web_
 
 if __name__ == "__main__":
     import argparse
-    import re
     
     parser = argparse.ArgumentParser(
         description="Create CrewAI configuration with architecture options",

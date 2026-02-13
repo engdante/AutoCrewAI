@@ -1,22 +1,57 @@
 """
+
+# Dynamic path setup for imports (works from both script/ and parent directory)
+_script_dir = Path(__file__).parent.absolute()
+_parent_dir = _script_dir.parent
+if str(_script_dir) not in sys.path:
+    sys.path.insert(0, str(_script_dir))
+if str(_parent_dir) not in sys.path:
+    sys.path.insert(0, str(_parent_dir))
 Anna's Archive Tool - Main Tool Class
 Refactored to use modular components for better maintainability.
 """
 
 import os
 import sys
+import re
+from pathlib import Path
 import argparse
 import logging
 from typing import Optional
+from pydantic import BaseModel, Field
+from crewai.tools import BaseTool
 
 # Import from our modules
-from annas_config import AnnasArchiveInput, BookResult, debug_print
-from annas_utils import resolve_download_dir, verify_file_type
-from annas_browser_manager import BrowserManager
-from annas_book_search import BookSearcher
-from annas_download_manager import DownloadManager
+try:
+    from annas_config import BookResult, debug_print, project_root
+except ModuleNotFoundError:
+    from script.annas_config import BookResult, debug_print, project_root
+try:
+    from annas_utils import resolve_download_dir, verify_file_type
+except ModuleNotFoundError:
+    from script.annas_utils import resolve_download_dir, verify_file_type
+try:
+    from annas_browser_manager import BrowserManager
+except ModuleNotFoundError:
+    from script.annas_browser_manager import BrowserManager
+try:
+    from annas_book_search import BookSearcher
+except ModuleNotFoundError:
+    from script.annas_book_search import BookSearcher
+try:
+    from annas_download_manager import DownloadManager
+except ModuleNotFoundError:
+    from script.annas_download_manager import DownloadManager
+try:
+    from annas_file_converter import read_file_content
+except ModuleNotFoundError:
+    from script.annas_file_converter import read_file_content
 
-class AnnasArchiveTool:
+class AnnasArchiveInput(BaseModel):
+    """Input schema for AnnasArchiveTool."""
+    query: str = Field(..., description="The name and author of the book to search for.")
+
+class AnnasArchiveTool(BaseTool):
     """
     Search for books on Anna's Archive, download them, and read their content.
     
@@ -24,22 +59,65 @@ class AnnasArchiveTool:
     Integrates with crewAI and supports RAG indexing.
     """
     
-    def __init__(self, **kwargs):
-        # Initialize managers
-        self.browser_manager = BrowserManager()
-        self.book_searcher = BookSearcher(self.browser_manager)
-        self.download_manager = DownloadManager(self.browser_manager)
+    name: str = "annas_archive_tool"
+    description: str = (
+        "Search for books on Anna's Archive, download them, and read their content. "
+        "Uses Playwright for reliable Cloudflare bypass. "
+        "Returns book content and supports RAG indexing."
+    )
+    args_schema: type[BaseModel] = AnnasArchiveInput
+    
+    # Non-Pydantic fields for internal use
+    _browser_manager: Optional[BrowserManager] = None
+    _book_searcher: Optional[BookSearcher] = None
+    _download_manager: Optional[DownloadManager] = None
+    _default_browser_mode: str = 'show'
+    _default_crew_name: Optional[str] = None
+    
+    def __init__(self, browser_mode: str = 'show', crew_name: Optional[str] = None, **kwargs):
+        super().__init__(**kwargs)
+        # Initialize managers on-demand (lazy initialization)
+        self._browser_manager = None
+        self._book_searcher = None
+        self._download_manager = None
+        self._default_browser_mode = browser_mode
+        self._default_crew_name = crew_name
         
         # Set class variables for dynamic URLs
         self.__class__.BASE_URL = ""
         self.__class__.SEARCH_URL = ""
         self.__class__._working_domain = None
+        
+        # Ensure we don't trigger Pydantic validation errors
+        # by avoiding setting attributes that aren't in the model
+        self._initialized = True
+    
+    @property
+    def browser_manager(self):
+        """Lazy initialization of browser manager."""
+        if self._browser_manager is None:
+            self._browser_manager = BrowserManager()
+        return self._browser_manager
+    
+    @property
+    def book_searcher(self):
+        """Lazy initialization of book searcher."""
+        if self._book_searcher is None:
+            self._book_searcher = BookSearcher(self.browser_manager)
+        return self._book_searcher
+    
+    @property
+    def download_manager(self):
+        """Lazy initialization of download manager."""
+        if self._download_manager is None:
+            self._download_manager = DownloadManager(self.browser_manager)
+        return self._download_manager
 
     def _find_working_domain(self) -> Optional[str]:
         """Find a working Anna's Archive domain by trying each one."""
         return self.browser_manager.find_working_domain()
 
-    def _run(self, query: str, download_dir: Optional[str] = None, crew_name: Optional[str] = None, filename: Optional[str] = None, browser_mode: str = 'show') -> str:
+    def _run(self, query: str, download_dir: Optional[str] = None, crew_name: Optional[str] = None, filename: Optional[str] = None, browser_mode: Optional[str] = None) -> str:
         """
         Main execution method.
 
@@ -53,6 +131,10 @@ class AnnasArchiveTool:
         Returns:
             Result message with file path and content preview
         """
+        # Prioritize arguments, then defaults
+        browser_mode = browser_mode or self._default_browser_mode
+        crew_name = crew_name or self._default_crew_name
+        
         debug_print("="*60)
         debug_print("_run: Starting main execution")
         debug_print(f"  query: '{query}'")
@@ -64,16 +146,69 @@ class AnnasArchiveTool:
         
         try:
             # 1. Configure browser mode
-            if browser_mode == 'headless':
-                self.browser_manager.set_headless(True)
-            elif browser_mode == 'hide':
-                self.browser_manager.set_headless(False)
-            # 'show' mode uses default settings
+            headless = (browser_mode == 'headless')
             
             # 2. Determine download path
             input_dir = resolve_download_dir(download_dir, crew_name)
             os.makedirs(input_dir, exist_ok=True)
             debug_print(f"Download directory created/verified: {input_dir}")
+
+            # --- Early Check for existing downloaded book ---
+            # Try to infer the base filename for the check
+            check_base_filename = filename if filename else self._generate_filename(query)
+            existing_file_path = None
+            
+            # 1. Exact filename check
+            for ext in ['pdf', 'epub', 'mobi', 'txt', 'azw3']:
+                potential_path = os.path.join(input_dir, f"{check_base_filename}.{ext}")
+                if os.path.exists(potential_path):
+                    existing_file_path = potential_path
+                    break
+            
+            # 2. Fuzzy check: if any PDF/EPUB exists in the directory that might be this book
+            if not existing_file_path:
+                query_words = set(re.sub(r'[^\w\s]', '', query.lower()).split())
+                for f in os.listdir(input_dir):
+                    if f.lower().endswith(('.pdf', '.epub')):
+                        f_words = set(re.sub(r'[^\w\s]', '', f.lower()).split())
+                        # If more than 50% of query words are in the filename, it's likely the same book
+                        if query_words and len(query_words & f_words) / len(query_words) > 0.5:
+                            existing_file_path = os.path.join(input_dir, f)
+                            debug_print(f"Fuzzy match found: {f}")
+                            break
+            
+            if existing_file_path:
+                debug_print(f"Book '{query}' found at: {existing_file_path}")
+                print(f"[INFO] Book '{query}' already downloaded as {os.path.basename(existing_file_path)}. Skipping search.")
+                
+                # Optionally ensure it's indexed for RAG
+                rag_status = ""
+                try:
+                    from rag_storage import RAGStorage
+                    rag_db_path = ""
+                    if crew_name:
+                        rag_db_path = os.path.join(project_root, "crews", crew_name, "rag_db")
+                    elif download_dir:
+                        rag_db_path = os.path.join(input_dir, "rag_db") # Use input_dir directly for download_dir case
+                    else:
+                        rag_db_path = os.path.join(project_root, "crews", "shared", "rag_db")
+                    
+                    storage = RAGStorage(persist_directory=rag_db_path)
+                    storage.add_book(existing_file_path, book_id=query) # Use query as book_id for consistency
+                    rag_status = "\n[RAG] Book confirmed indexed for querying."
+                    debug_print("RAG indexing confirmed for existing book")
+                except Exception as e:
+                    rag_status = f"\n[RAG] Failed to confirm indexing for existing book: {e}"
+                    debug_print(f"RAG indexing confirmation failed: {e}")
+
+                content_snippet = read_file_content(existing_file_path, os.path.splitext(existing_file_path)[1].lstrip('.'))
+                
+                return (
+                    f"Book '{query}' already exists at '{existing_file_path}'\n"
+                    f"Format: {os.path.splitext(existing_file_path)[1].lstrip('.').upper()}, Size: {os.path.getsize(existing_file_path):,} bytes\n\n"
+                    f"Content Preview:\n{content_snippet}{rag_status}"
+                )
+            # --- End early check for existing book ---
 
             # 3. Find working domain and set URLs
             working_domain = self._find_working_domain()
@@ -92,7 +227,7 @@ class AnnasArchiveTool:
             print(f"[INFO] Browser mode: {browser_mode}")
             print(f"{'='*60}\n")
             
-            results = self.book_searcher.search_books(query, max_results=5)
+            results = self.book_searcher.search_books(query, max_results=10, headless=headless)
             
             if not results:
                 debug_print("No books found")
@@ -151,7 +286,7 @@ class AnnasArchiveTool:
                     return f"Successfully downloaded '{query}' but failed to convert MOBI to TXT."
 
             # 7. Read content snippet
-            content_snippet = self.download_manager.read_file_content(final_path, real_ext)
+            content_snippet = read_file_content(final_path, real_ext)
             
             # 8. RAG Indexing
             rag_status = ""
@@ -159,9 +294,21 @@ class AnnasArchiveTool:
                 try:
                     from rag_storage import RAGStorage
                 except (ImportError, ValueError):
-                    from rag_storage import RAGStorage
-                    
-                storage = RAGStorage()
+                    from script.rag_storage import RAGStorage
+                
+                # Determine RAG persist directory dynamically
+                rag_db_path = ""
+                if crew_name:
+                    rag_db_path = os.path.join(project_root, "crews", crew_name, "rag_db")
+                    print(f"[INFO] Using crew-specific RAG DB: {rag_db_path}")
+                elif download_dir:
+                    rag_db_path = os.path.join(download_dir, "rag_db")
+                    print(f"[INFO] Using download_dir-specific RAG DB: {rag_db_path}")
+                else:
+                    rag_db_path = os.path.join(project_root, "crews", "shared", "rag_db")
+                    print(f"[INFO] Using shared RAG DB: {rag_db_path}")
+
+                storage = RAGStorage(persist_directory=rag_db_path)
                 storage.add_book(path_for_rag, book_id=query)
                 rag_status = "\n[RAG] Book indexed successfully for querying."
                 debug_print("RAG indexing successful")
@@ -194,7 +341,10 @@ class AnnasArchiveTool:
     
     def _calculate_relevance_score(self, book_title: str, query: str) -> float:
         """Calculate relevance score for a book title."""
-        from annas_utils import score_book_relevance
+        try:
+            from annas_utils import score_book_relevance
+        except ModuleNotFoundError:
+            from script.annas_utils import score_book_relevance
         return score_book_relevance(book_title, query)
     
     def _download_book_with_fallbacks(self, book: BookResult, input_dir: str, filename: Optional[str] = None) -> tuple[Optional[str], str]:

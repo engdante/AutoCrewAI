@@ -1,4 +1,12 @@
 """
+
+# Dynamic path setup for imports (works from both script/ and parent directory)
+_script_dir = Path(__file__).parent.absolute()
+_parent_dir = _script_dir.parent
+if str(_script_dir) not in sys.path:
+    sys.path.insert(0, str(_script_dir))
+if str(_parent_dir) not in sys.path:
+    sys.path.insert(0, str(_parent_dir))
 Anna's Archive Tool - Utility Functions
 Contains helper functions for relevance scoring, file type detection, and other utilities.
 """
@@ -10,8 +18,13 @@ import random
 import logging
 from typing import Optional, Tuple
 
+import sys
+from pathlib import Path
 # Import logger from config
-from annas_config import logger, debug_print, DEBUG_MODE, INTERACTIVE_MODE
+try:
+    from annas_config import logger, debug_print, DEBUG_MODE, INTERACTIVE_MODE, project_root
+except ModuleNotFoundError:
+    from script.annas_config import logger, debug_print, DEBUG_MODE, INTERACTIVE_MODE, project_root
 
 def is_relevant(title: str, query: str) -> bool:
     """Check if title is relevant to the search query."""
@@ -162,6 +175,3 @@ def resolve_download_dir(download_dir: Optional[str], crew_name: Optional[str]) 
     debug_print(f"Using default project input directory: {path}")
     print(f"[INFO] Using default project input directory: {path}")
     return path
-
-# Import project_root from config
-from annas_config import project_root

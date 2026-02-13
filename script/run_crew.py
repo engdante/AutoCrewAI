@@ -4,6 +4,7 @@ import sys
 import warnings
 import logging
 import traceback
+from typing import Optional # Import Optional
 
 # Suppress Pydantic V2 compatibility warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='pydantic')
@@ -205,18 +206,32 @@ def parse_crew_md(file_path, task_input_content):
                 
                 if tools_string:
                     # Load tools from tools registry
-                    available_tools = get_tool_agent_tools()
+                    # Try to use a provided browser mode if possible (via some global or passed arg)
+                    # For now, we'll try to find where browser_mode comes from.
+                    # It's not passed to parse_crew_md, so we might need a better way.
+                    # Let's assume headless as default if we can't get it.
+                    
+                    # IMPORTANT: We need browser_mode here. Since it's in run_crew, 
+                    # we should probably pass it down or use a global.
+                    # As a quick fix, we'll look for it in sys.argv if not passed.
+                    
+                    b_mode = 'headless'
+                    if '--browser-mode' in sys.argv:
+                        idx = sys.argv.index('--browser-mode')
+                        if idx + 1 < len(sys.argv):
+                            b_mode = sys.argv[idx+1]
+
+                    available_tools = get_tool_agent_tools(crew_name=crew_title, browser_mode=b_mode)
                     tool_names = [t.strip() for t in tools_string.split(',')]
                     
                     for tool in available_tools:
                         if tool.name in tool_names:
                             agent_tools.append(tool)
                             print(f"  ✅ Loaded tool '{tool.name}' for agent '{name}'")
-                        else:
-                            print(f"  ⚠️ Tool '{tool.name}' not in requested tools list")
                     
                     if not agent_tools:
-                        print(f"  ⚠️ No tools loaded for agent '{name}' - requested tools not available")
+                        print(f"  ⚠️ No tools loaded for agent '{name}' - requested tools [{tools_string}] not found.")
+                        print(f"  Available tools: {[t.name for t in available_tools]}")
                 else:
                     print(f"  ℹ️ No tools specified for agent '{name}'")
                 
@@ -331,7 +346,7 @@ def parse_crew_md(file_path, task_input_content):
         logging.error(f"Error parsing Crew.md: {str(e)}", exc_info=True)
         return None, {}, [], "sequential", None
 
-def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False, debug=False):
+def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False, debug=False, crew_name: Optional[str] = None, browser_mode: str = 'headless'):
     global OUTPUT_DIR
     
     # If output_dir is provided via CLI, use it. 
@@ -364,6 +379,9 @@ def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False, deb
         if title is None:
             print("Failed to parse Crew.md. Please check the validation errors above.")
             return
+
+        # Ensure we have a crew_name for tools (prioritize CLI arg, then Crew.md title)
+        effective_crew_name = crew_name or title
         
         agent_list = list(agents_dict.values())
         
@@ -372,7 +390,8 @@ def run_crew(crew_file, task_file, output_dir=None, enable_web_search=False, deb
             print(f"--- [INFO] Web Search Enabled: Injecting tools into all agents ---")
             logging.info("Web Search Enabled via CLI flag")
             try:
-                extra_tools = get_tool_agent_tools()
+                # Use browser_mode from run_crew arguments if available, otherwise default to headless
+                extra_tools = get_tool_agent_tools(crew_name=effective_crew_name, browser_mode=browser_mode)
                 tool_names = [t.name for t in extra_tools]
                 print(f"    Tools injected: {', '.join(tool_names)}")
                 
@@ -534,6 +553,9 @@ if __name__ == "__main__":
     parser.add_argument("--task-file", help="Path to Task.md", default=None)
     parser.add_argument("--output-dir", help="Directory for output files", default=None)
     
+    parser.add_argument("--crew-name", help="Name of the crew being run (for RAG pathing)", default=None)
+    parser.add_argument("--browser-mode", choices=['show', 'hide', 'headless'], default='headless', help="Browser visibility mode for tools")
+    
     parser.add_argument("--web-search", action="store_true", help="Enable web search for all agents")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     
@@ -544,4 +566,4 @@ if __name__ == "__main__":
     crew_file = args.crew_file if args.crew_file else os.path.join(default_crew_path, 'Crew.md')
     task_file = args.task_file if args.task_file else os.path.join(default_crew_path, 'Task.md')
     
-    run_crew(crew_file, task_file, args.output_dir, args.web_search, args.debug)
+    run_crew(crew_file, task_file, args.output_dir, args.web_search, args.debug, args.crew_name, args.browser_mode)
